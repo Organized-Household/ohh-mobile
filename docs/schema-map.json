@@ -1,0 +1,444 @@
+{
+  "_meta": {
+    "generated_by": "Forge (Senior Full Stack Engineer, OHh Platform)",
+    "generated_date": "2026-04-28",
+    "source": "Live Supabase database — direct SQL introspection queries run by product owner",
+    "project_ref": "qcbhvzyfsbykdtipyzuk",
+    "purpose": "Authoritative schema reference for OHh Finance Mobile v1. All WPs consume this file. No schema assumptions are hardcoded in application code.",
+    "warning": "Do not use artifact descriptions, Engineering Spec, or Decision Log as schema references. This file is ground truth."
+  },
+
+  "tables": {
+
+    "tenants": {
+      "description": "Household registry. One row per household.",
+      "mobile_usage": "Read on login to confirm tenant context.",
+      "columns": {
+        "id": { "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        "alias": { "type": "text", "nullable": false, "default": null },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" }
+      },
+      "indexes": ["tenants_pkey (unique)", "tenants_alias_key (unique)"],
+      "rls_policies": {
+        "tenants_select_member": "SELECT — member of tenant can read their own tenant row"
+      },
+      "mobile_notes": "No INSERT/UPDATE/DELETE from mobile. Read only."
+    },
+
+    "tenant_members": {
+      "description": "Household membership with roles. Soft-delete via is_active.",
+      "mobile_usage": "Read to determine role (admin/member) and to list active household members.",
+      "columns": {
+        "tenant_id": { "type": "uuid", "nullable": false, "default": null, "fk": "tenants.id" },
+        "user_id": { "type": "uuid", "nullable": false, "default": null, "fk": "auth.users.id" },
+        "role": { "type": "text", "nullable": false, "default": null, "check": "role IN ('admin','member')" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "is_active": { "type": "boolean", "nullable": false, "default": "true" }
+      },
+      "primary_key": ["tenant_id", "user_id"],
+      "indexes": [
+        "tenant_members_pkey (unique: tenant_id, user_id)",
+        "idx_tenant_members_user_id",
+        "idx_tenant_members_tenant_id",
+        "idx_tenant_members_active (tenant_id, is_active)"
+      ],
+      "rls_policies": {
+        "tenant_members_select_self": "SELECT — user can only read their own row (user_id = auth.uid())"
+      },
+      "mobile_notes": "⚠️ CRITICAL RLS GAP — SELECT policy only allows self-read. Admin member selector (STORY-3.1) needs to read ALL active members in the household. Current policy blocks this. An additive admin SELECT policy is required before WP-3 begins. See WP-0 findings.",
+      "mobile_notes_2": "is_active filter must be applied on all member list queries to exclude soft-deleted members."
+    },
+
+    "profiles": {
+      "description": "User display info. Soft-delete via is_active.",
+      "mobile_usage": "Read for display_name in member selector and dashboard header.",
+      "columns": {
+        "user_id": { "type": "uuid", "nullable": false, "default": null, "pk": true, "fk": "auth.users.id" },
+        "display_name": { "type": "text", "nullable": true, "default": null },
+        "first_name": { "type": "text", "nullable": true, "default": null },
+        "last_name": { "type": "text", "nullable": true, "default": null },
+        "is_active": { "type": "boolean", "nullable": false, "default": "true" }
+      },
+      "indexes": [
+        "profiles_pkey (unique: user_id)",
+        "idx_profiles_active (user_id, is_active)"
+      ],
+      "rls_policies": {
+        "profiles_select_self": "SELECT — user reads own profile (auth.uid() = user_id)",
+        "profiles_select_tenant_admin": "SELECT — admin can read ALL profiles of members in their household (join via tenant_members)",
+        "profiles_insert_self": "INSERT — user inserts own profile",
+        "profiles_update_self": "UPDATE — user updates own profile"
+      },
+      "mobile_notes": "✅ Admin can read all household member profiles via profiles_select_tenant_admin policy. Member selector query should JOIN profiles + tenant_members filtering is_active=true on both tables.",
+      "mobile_notes_2": "display_name is the canonical display field for mobile. first_name and last_name are supplementary — nullable, use display_name as primary."
+    },
+
+    "categories": {
+      "description": "Income/expense categories. Shared household-wide (tenant-scoped, not per-member).",
+      "mobile_usage": "Read for CategoryPicker in transaction form. Edit (rename) in STORY-6.1.",
+      "columns": {
+        "id": { "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        "tenant_id": { "type": "uuid", "nullable": false, "default": null, "fk": "tenants.id" },
+        "name": { "type": "text", "nullable": false, "default": null },
+        "tag": { "type": "text", "nullable": false, "default": "'standard'::text", "fk": "expense_types.slug" },
+        "is_active": { "type": "boolean", "nullable": false, "default": "true" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "category_type": { "type": "text", "nullable": false, "default": null, "check": "category_type IN ('income','expense')" }
+      },
+      "indexes": [
+        "categories_pkey (unique: id)",
+        "categories_tenant_lower_name_uniq (unique: tenant_id, lower(name))"
+      ],
+      "rls_policies": {
+        "categories_select_for_tenant_members": "SELECT — any active tenant member",
+        "categories_insert_for_tenant_members": "INSERT — any active tenant member (NOT admin-only — changed from original)",
+        "categories_update_for_tenant_members": "UPDATE — any active tenant member (NOT admin-only — changed from original)",
+        "categories_delete_for_tenant_members": "DELETE — any active tenant member (NOT admin-only — changed from original)"
+      },
+      "mobile_notes": "⚠️ tag column is a FK to expense_types.slug — NOT a hardcoded enum. Mobile must never hardcode tag values (standard/savings/investment/charity). Fetch valid tags from expense_types table at runtime.",
+      "mobile_notes_2": "category_type CHECK is ('income','expense') only — not 'savings' or 'investment'. Those are expressed via the tag FK.",
+      "mobile_notes_3": "UNKNOWN category: no is_system flag exists on categories table. Unknown category must be identified by name match or seeded with a known UUID. WP-0 must run the seed query — see WP-0 findings.",
+      "mobile_notes_4": "✅ Any active member can INSERT/UPDATE/DELETE categories on mobile — no admin restriction."
+    },
+
+    "expense_types": {
+      "description": "Dynamic tag vocabulary for categories. System-wide, NOT tenant-scoped.",
+      "mobile_usage": "Read to populate tag labels in CategoryPicker and category edit form.",
+      "columns": {
+        "id": { "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        "name": { "type": "text", "nullable": false, "default": null },
+        "slug": { "type": "text", "nullable": false, "default": null },
+        "is_active": { "type": "boolean", "nullable": false, "default": "true" },
+        "is_system": { "type": "boolean", "nullable": false, "default": "false" },
+        "sort_order": { "type": "integer", "nullable": false, "default": "0" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" }
+      },
+      "indexes": [
+        "expense_types_pkey (unique: id)",
+        "expense_types_slug_uniq (unique: slug)"
+      ],
+      "rls_policies": {
+        "expense_types_select_authenticated": "SELECT — any authenticated user (qual: true)"
+      },
+      "mobile_notes": "✅ Any authenticated user can read expense_types. No tenant scoping.",
+      "mobile_notes_2": "is_system=true rows (standard, savings, investment) cannot be deleted. charity is is_system=false.",
+      "mobile_notes_3": "Mobile must fetch active expense_types (is_active=true) to populate tag dropdowns. Never hardcode slugs.",
+      "known_seeded_slugs": ["debts", "standard", "savings", "investment", "charity"],
+      "live_seeded_rows": [
+        { "id": "910fbded-d6c6-40a0-a19c-5f577f8bc514", "name": "Debts", "slug": "debts", "is_active": true, "is_system": false, "sort_order": 0 },
+        { "id": "26b580f9-f3ad-4537-aaa4-2a74d2506a02", "name": "Standard", "slug": "standard", "is_active": true, "is_system": true, "sort_order": 1 },
+        { "id": "0b68f7c9-9b8a-40b5-8cc2-dbf199e2168f", "name": "Savings", "slug": "savings", "is_active": true, "is_system": true, "sort_order": 2 },
+        { "id": "4253d515-abf1-47bc-97e8-95f4c5cf5d45", "name": "Investment", "slug": "investment", "is_active": true, "is_system": true, "sort_order": 3 },
+        { "id": "516bee19-dce0-4e5a-a2d6-ef7fd4c2c8e4", "name": "Charity", "slug": "charity", "is_active": true, "is_system": false, "sort_order": 4 }
+      ],
+      "artifact_drift_warning": "Mobile artifacts reference 'debt_payment' as a valid tag slug. This does NOT exist in the live database. The correct slug is 'debts'. Never use 'debt_payment' in any mobile implementation."
+    },
+
+    "budgets": {
+      "description": "Monthly budget per member. One row per tenant+user+month.",
+      "mobile_usage": "Read to find budget_id for a member's month. Used in dashboard and budget view.",
+      "columns": {
+        "id": { "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        "tenant_id": { "type": "uuid", "nullable": false, "default": null, "fk": "tenants.id" },
+        "user_id": { "type": "uuid", "nullable": false, "default": null, "fk": "auth.users.id" },
+        "month_start": { "type": "date", "nullable": false, "default": null },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" }
+      },
+      "unique_constraints": ["(tenant_id, user_id, month_start)"],
+      "indexes": [
+        "budgets_pkey (unique: id)",
+        "budgets_tenant_id_user_id_month_start_key (unique)",
+        "idx_budgets_lookup (tenant_id, user_id, month_start)"
+      ],
+      "rls_policies": {
+        "select own or admin budgets": "SELECT — own (user_id = auth.uid()) OR admin of same tenant",
+        "insert own budgets": "INSERT — own only (user_id = auth.uid())",
+        "update own or admin budgets": "UPDATE — own OR admin of same tenant"
+      },
+      "mobile_notes": "✅ Admin can SELECT any member's budget. Mobile dashboard query: SELECT from budgets WHERE tenant_id = $tenantId AND user_id = $targetUserId AND month_start = $monthStart.",
+      "mobile_notes_2": "month_start is DATE type — always first day of month (e.g. 2026-04-01). Never use a mid-month date."
+    },
+
+    "budget_lines": {
+      "description": "Budget amounts per category per budget. Single amount column.",
+      "mobile_usage": "Read for dashboard budget vs actual calculation and budget view.",
+      "columns": {
+        "id": { "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        "tenant_id": { "type": "uuid", "nullable": false, "default": null, "fk": "tenants.id" },
+        "budget_id": { "type": "uuid", "nullable": false, "default": null, "fk": "budgets.id" },
+        "category_id": { "type": "uuid", "nullable": false, "default": null, "fk": "categories.id" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "amount": { "type": "numeric", "nullable": false, "default": "0" }
+      },
+      "unique_constraints": ["(tenant_id, budget_id, category_id)"],
+      "indexes": [
+        "budget_lines_pkey (unique: id)",
+        "budget_lines_tenant_id_budget_id_category_id_key (unique)",
+        "idx_budget_lines_budget (budget_id)"
+      ],
+      "rls_policies": {
+        "select lines via parent budget": "SELECT — own budget OR admin of same tenant (via parent budgets row)",
+        "modify own lines": "ALL (INSERT/UPDATE/DELETE) — own budget only"
+      },
+      "mobile_notes": "⚠️ COLUMN CHANGE FROM ORIGINAL SPEC — planned_income and planned_expense columns NO LONGER EXIST. Single amount column only. Any CC reading old Engineering Spec will get this wrong.",
+      "mobile_notes_2": "✅ Admin can SELECT any member's budget_lines via the parent budget SELECT policy.",
+      "mobile_notes_3": "⚠️ Admin CANNOT modify another member's budget_lines — 'modify own lines' policy is own-only. Mobile budget edit is out of scope for v1 anyway."
+    },
+
+    "transactions": {
+      "description": "Full transaction record. Per-member via created_by_user_id.",
+      "mobile_usage": "INSERT for new transactions (online + offline sync). SELECT for transaction list and dashboard actuals. DELETE for member own / admin any.",
+      "columns": {
+        "id": { "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        "tenant_id": { "type": "uuid", "nullable": false, "default": null, "fk": "tenants.id" },
+        "created_by_user_id": { "type": "uuid", "nullable": false, "default": null },
+        "category_id": { "type": "uuid", "nullable": false, "default": null, "fk": "categories.id" },
+        "description": { "type": "text", "nullable": false, "default": null },
+        "amount": { "type": "numeric", "nullable": false, "default": null, "check": "amount <> 0" },
+        "transaction_date": { "type": "date", "nullable": false, "default": null },
+        "transaction_type": { "type": "text", "nullable": false, "default": null, "check": "transaction_type IN ('income','expense')" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "linked_account_id": { "type": "uuid", "nullable": true, "default": null, "fk": "accounts.id" },
+        "payment_source_account_id": { "type": "uuid", "nullable": true, "default": null, "fk": "accounts.id" }
+      },
+      "check_constraints": {
+        "transactions_amount_check": "amount <> 0",
+        "transactions_transaction_type_check": "transaction_type IN ('income','expense')",
+        "transactions_linked_not_same_as_payment_source_chk": "linked_account_id IS NULL OR payment_source_account_id IS NULL OR linked_account_id <> payment_source_account_id"
+      },
+      "indexes": [
+        "transactions_pkey (unique: id)",
+        "transactions_tenant_id_idx",
+        "transactions_category_id_idx",
+        "transactions_transaction_date_idx",
+        "idx_transactions_linked_account_id",
+        "idx_transactions_payment_source_account_id"
+      ],
+      "rls_policies": {
+        "transactions_select_for_tenant_members": "SELECT — any tenant member (reads ALL tenant transactions — not own-only)",
+        "transactions_insert_for_tenant_members": "INSERT — created_by_user_id = auth.uid() AND is tenant member",
+        "transactions_update_for_tenant_members": "UPDATE — any tenant member",
+        "transactions_delete_for_tenant_members": "DELETE — any tenant member"
+      },
+      "mobile_notes": "⚠️ CRITICAL — INSERT policy enforces created_by_user_id = auth.uid(). Admin on-behalf-of INSERT (STORY-4.3) is BLOCKED by this policy. The admin cannot insert a transaction with another member's user_id as created_by_user_id. An additive admin INSERT policy is REQUIRED before STORY-4.3 can be built. See WP-0 findings.",
+      "mobile_notes_2": "✅ DELETE policy allows any tenant member to delete any transaction in their household. Both member-own and admin-any delete are covered.",
+      "mobile_notes_3": "✅ transactions.id is UUID (gen_random_uuid()). Offline sync localUUID maps directly to the row PK. No idempotency_key column needed.",
+      "mobile_notes_4": "⚠️ COLUMN NAMES — date field is transaction_date (NOT occurred_at). User field is created_by_user_id (NOT user_id). Any CC reading old Engineering Spec will get column names wrong.",
+      "mobile_notes_5": "transactions table has NO source or status columns. The handoff doc listed these — they do NOT exist in the live database. Do not include source or status in mobile INSERT payloads.",
+      "mobile_notes_6": "amount check constraint: amount <> 0. Zero-amount transactions will be rejected by the database.",
+      "mobile_insert_payload": {
+        "id": "localUUID (UUIDv4 — maps directly to PK)",
+        "tenant_id": "from session",
+        "created_by_user_id": "target member user_id (auth.uid() for own; admin policy needed for on-behalf-of)",
+        "category_id": "selected category UUID (UNKNOWN_CATEGORY_ID if unknown)",
+        "description": "user-entered note (required — use empty string fallback if blank)",
+        "amount": "applySignConvention(amount, transaction_type) — never zero",
+        "transaction_date": "ISO date string YYYY-MM-DD",
+        "transaction_type": "income | expense",
+        "linked_account_id": "nullable — selected account UUID or null",
+        "payment_source_account_id": "nullable — null for mobile v1"
+      }
+    },
+
+    "accounts": {
+      "description": "Unified account table. Replaces former savings_accounts, investment_accounts, debt_accounts. Per-member via user_id.",
+      "mobile_usage": "Read for account picker in transaction form (STORY-4.2) and read-only account view (STORY-7.1).",
+      "columns": {
+        "id": { "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        "tenant_id": { "type": "uuid", "nullable": false, "default": null, "fk": "tenants.id" },
+        "account_kind": { "type": "text", "nullable": false, "default": null, "check": "account_kind IN ('savings','investment','debt')" },
+        "name": { "type": "text", "nullable": false, "default": null },
+        "account_subtype": { "type": "text", "nullable": true, "default": null },
+        "account_number_last4": { "type": "text", "nullable": true, "default": null, "check": "account_number_last4 ~ '^[0-9]{4}$'" },
+        "target_amount": { "type": "numeric", "nullable": true, "default": null },
+        "target_date": { "type": "date", "nullable": true, "default": null },
+        "is_active": { "type": "boolean", "nullable": false, "default": "true" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "updated_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "opening_balance": { "type": "numeric", "nullable": true, "default": null },
+        "interest_rate": { "type": "numeric", "nullable": true, "default": null },
+        "user_id": { "type": "uuid", "nullable": false, "default": null, "fk": "auth.users.id" }
+      },
+      "unique_constraints": ["(tenant_id, account_kind, lower(name))"],
+      "indexes": [
+        "accounts_pkey (unique: id)",
+        "accounts_tenant_kind_name_uidx (unique: tenant_id, account_kind, lower(name))",
+        "accounts_tenant_id_idx",
+        "accounts_tenant_kind_idx",
+        "accounts_tenant_kind_active_idx",
+        "idx_accounts_user_id (tenant_id, user_id, is_active)"
+      ],
+      "rls_policies": {
+        "accounts_select_for_tenant_members": "SELECT — any tenant member (reads ALL tenant accounts — not own-only)",
+        "accounts_insert_for_tenant_members": "INSERT — user_id = auth.uid() AND active tenant member",
+        "accounts_update_for_tenant_members": "UPDATE — user_id = auth.uid() AND active tenant member",
+        "accounts_delete_for_tenant_members": "DELETE — user_id = auth.uid() AND active tenant member"
+      },
+      "mobile_notes": "✅ accounts.user_id exists — per-member ownership confirmed.",
+      "mobile_notes_2": "✅ SELECT policy allows any tenant member to read all accounts — admin can read all members' accounts without additional policy.",
+      "mobile_notes_3": "Mobile account picker query: SELECT from accounts WHERE tenant_id = $tenantId AND user_id = $targetUserId AND is_active = true ORDER BY account_kind, name.",
+      "mobile_notes_4": "No balance column exists — accounts store opening_balance only. Running balance is computed from transactions. Mobile v1 displays opening_balance as the balance figure."
+    },
+
+    "invitations": {
+      "description": "Member invite lifecycle.",
+      "mobile_usage": "None — web only.",
+      "columns": {
+        "id": { "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        "tenant_id": { "type": "uuid", "nullable": false, "default": null, "fk": "tenants.id" },
+        "email": { "type": "text", "nullable": false, "default": null },
+        "role": { "type": "text", "nullable": false, "default": "'member'::text", "check": "role IN ('admin','member')" },
+        "status": { "type": "text", "nullable": false, "default": "'pending'::text", "check": "status IN ('pending','accepted','revoked')" },
+        "invited_by": { "type": "uuid", "nullable": false, "default": null },
+        "invited_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "accepted_at": { "type": "timestamptz", "nullable": true, "default": null }
+      },
+      "mobile_notes": "Not used by mobile v1."
+    },
+
+    "import_batches": {
+      "description": "CSV import batch tracking.",
+      "mobile_usage": "None — web only.",
+      "mobile_notes": "Not used by mobile v1."
+    },
+
+    "import_staging": {
+      "description": "CSV import pending rows before posting to transactions.",
+      "mobile_usage": "None — web only.",
+      "mobile_notes": "Not used by mobile v1."
+    }
+  },
+
+  "wp0_findings": {
+    "title": "WP-0 Critical Findings — Actions Required Before Mobile Development",
+
+    "FINDING-1": {
+      "severity": "CRITICAL",
+      "title": "transactions INSERT policy blocks admin on-behalf-of (STORY-4.3 blocker)",
+      "detail": "The transactions_insert_for_tenant_members policy enforces created_by_user_id = auth.uid(). This means an admin cannot insert a transaction with a different member's user_id as created_by_user_id. STORY-4.3 (Admin On-Behalf-Of Transaction Entry) is completely blocked until an additive policy is added.",
+      "required_action": "Add additive RLS policy: admin of same tenant can INSERT transaction with any created_by_user_id for members of their tenant.",
+      "migration_needed": true,
+      "blocks": ["STORY-4.3", "OHHFIN-124"]
+    },
+
+    "FINDING-2": {
+      "severity": "CRITICAL",
+      "title": "tenant_members SELECT policy is self-only — admin member selector blocked",
+      "detail": "The only RLS policy on tenant_members is tenant_members_select_self (user_id = auth.uid()). An admin cannot query the list of all household members. This blocks STORY-3.1 (Member Selector Dropdown) — the admin cannot populate the dropdown.",
+      "required_action": "Add additive RLS policy: admin can SELECT all tenant_members rows for their tenant.",
+      "migration_needed": true,
+      "blocks": ["STORY-3.1", "STORY-3.2", "STORY-4.3", "OHHFIN-120", "OHHFIN-121", "OHHFIN-124"]
+    },
+
+    "FINDING-3": {
+      "severity": "CRITICAL",
+      "title": "transactions table has NO source or status columns",
+      "detail": "The handoff document listed source and status as columns on the transactions table. They DO NOT EXIST in the live database. The live transactions table has exactly 11 columns. Any mobile INSERT payload that includes source or status will fail.",
+      "required_action": "Remove source and status from all mobile transaction INSERT payloads. Update mobile_insert_payload in schema-map.json (already corrected above).",
+      "migration_needed": false,
+      "blocks": ["STORY-4.2", "STORY-5.1", "STORY-5.2", "STORY-5.3"]
+    },
+
+    "FINDING-4": {
+      "severity": "HIGH",
+      "title": "Unknown category does not exist — must be seeded",
+      "detail": "No Unknown or is_system flag exists on the categories table. The UNKNOWN_CATEGORY_ID constant cannot be set until a seed row is inserted. This must happen in WP-0 before any transaction entry work begins.",
+      "required_action": "Run seed SQL to insert an Unknown category row for each existing tenant. Record the UUID as UNKNOWN_CATEGORY_ID in src/constants/categoryConstants.ts. See seed SQL below.",
+      "seed_sql": "INSERT INTO public.categories (id, tenant_id, name, tag, is_active, category_type) SELECT gen_random_uuid(), id, 'Unknown', 'standard', true, 'expense' FROM public.tenants ON CONFLICT DO NOTHING; -- Then SELECT id FROM public.categories WHERE name = 'Unknown' to get the UUID per tenant.",
+      "migration_needed": true,
+      "blocks": ["STORY-6.2", "STORY-6.3", "OHHFIN-130", "OHHFIN-131"]
+    },
+
+    "FINDING-5": {
+      "severity": "HIGH",
+      "title": "categories.tag is a FK to expense_types.slug — not a hardcoded enum",
+      "detail": "The original mobile artifacts assumed tag was a static enum ('standard','savings','investment','debt_payment'). In the live database, tag is a FK to expense_types.slug with ON UPDATE CASCADE. Valid slugs are: standard, savings, investment, charity. debt_payment does not exist.",
+      "required_action": "Mobile CategoryPicker must fetch active expense_types at runtime. Never hardcode tag values. debt_payment is not a valid slug.",
+      "migration_needed": false,
+      "blocks": ["STORY-6.1", "STORY-4.2"]
+    },
+
+    "FINDING-6": {
+      "severity": "HIGH",
+      "title": "budget_lines has single amount column — planned_income and planned_expense do not exist",
+      "detail": "The original Engineering Spec described planned_income and planned_expense as separate columns on budget_lines. These were dropped in migration 20260408000100. Only a single amount column exists.",
+      "required_action": "All mobile budget queries must use amount only. Dashboard budget vs actual calculation: budgeted = budget_lines.amount for the category; actual = SUM of transactions.amount for same category + user + month.",
+      "migration_needed": false,
+      "blocks": ["STORY-2.1", "STORY-7.2"]
+    },
+
+    "FINDING-7": {
+      "severity": "MEDIUM",
+      "title": "transactions.id is UUID — offline sync localUUID maps directly to PK",
+      "detail": "Confirmed: transactions.id is uuid with default gen_random_uuid(). The offline sync strategy of using localUUID as the Supabase row PK is valid. No idempotency_key column is needed.",
+      "required_action": "None. Confirmed as expected. Document in SyncEngine implementation.",
+      "migration_needed": false,
+      "blocks": []
+    },
+
+    "FINDING-8": {
+      "severity": "MEDIUM",
+      "title": "device_tokens table does not exist — migration required",
+      "detail": "Confirmed: device_tokens table does not exist in the live database. Must be created before EPIC-8 (Push Notifications) work begins.",
+      "required_action": "Run device_tokens migration. See migration SQL below.",
+      "device_tokens_migration_sql": "CREATE TABLE public.device_tokens (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE, expo_push_token text NOT NULL, platform text NOT NULL CHECK (platform IN ('ios','android')), created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(user_id, platform)); ALTER TABLE public.device_tokens ENABLE ROW LEVEL SECURITY; CREATE POLICY device_tokens_member_own ON public.device_tokens FOR ALL TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());",
+      "migration_needed": true,
+      "blocks": ["STORY-8.1", "STORY-8.2", "STORY-8.3"]
+    },
+
+    "FINDING-9": {
+      "severity": "LOW",
+      "title": "accounts SELECT policy reads all tenant accounts — not own-only",
+      "detail": "accounts_select_for_tenant_members allows any tenant member to read ALL accounts in the tenant (not filtered to own user_id). Mobile account picker must still filter by user_id in the query for correct UX, but RLS does not enforce it.",
+      "required_action": "Mobile account picker query must always include WHERE user_id = $targetUserId filter — do not rely on RLS to scope to own accounts.",
+      "migration_needed": false,
+      "blocks": []
+    },
+
+    "FINDING-10": {
+      "severity": "HIGH",
+      "title": "expense_types slug 'debt_payment' does not exist — live slug is 'debts'",
+      "detail": "Mobile artifacts reference 'debt_payment' as a valid tag slug. The live database has 'debts' as the slug (is_system=false, sort_order=0). This was not in the Decision Log. 'debt_payment' will fail FK validation if used in any categories.tag write.",
+      "required_action": "Replace all references to 'debt_payment' with 'debts' across all mobile implementation work. Never hardcode tag slugs — always fetch from expense_types at runtime.",
+      "migration_needed": false,
+      "blocks": ["STORY-4.2", "STORY-6.1", "STORY-6.2"]
+    }
+  },
+
+  "required_migrations": [
+    {
+      "id": "MIGRATION-1",
+      "file": "supabase/migrations/YYYYMMDD_mobile_admin_transaction_insert_rls.sql",
+      "purpose": "Additive RLS — admin can INSERT transaction on behalf of any household member",
+      "severity": "CRITICAL",
+      "blocks_story": "STORY-4.3"
+    },
+    {
+      "id": "MIGRATION-2",
+      "file": "supabase/migrations/YYYYMMDD_mobile_admin_tenant_members_select_rls.sql",
+      "purpose": "Additive RLS — admin can SELECT all tenant_members in their household",
+      "severity": "CRITICAL",
+      "blocks_story": "STORY-3.1"
+    },
+    {
+      "id": "MIGRATION-3",
+      "file": "supabase/migrations/YYYYMMDD_mobile_unknown_category_seed.sql",
+      "purpose": "Seed Unknown category row per tenant. Record UUID as UNKNOWN_CATEGORY_ID.",
+      "severity": "HIGH",
+      "blocks_story": "STORY-6.2"
+    },
+    {
+      "id": "MIGRATION-4",
+      "file": "supabase/migrations/YYYYMMDD_device_tokens.sql",
+      "purpose": "Create device_tokens table with RLS for push notification token storage",
+      "severity": "HIGH",
+      "blocks_story": "STORY-8.1"
+    }
+  ],
+
+  "constants_to_generate": {
+    "file": "src/constants/categoryConstants.ts",
+    "UNKNOWN_CATEGORY_ID": "TO BE SET after MIGRATION-3 seed is run — SELECT id FROM categories WHERE name = 'Unknown' AND tenant_id = $yourTenantId",
+    "note": "If multiple tenants exist, each will have their own Unknown category UUID. The constant must be resolved per-tenant at runtime, not hardcoded as a single UUID."
+  }
+}
