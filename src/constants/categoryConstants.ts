@@ -3,23 +3,18 @@
  *
  * Authoritative constants for category business rules on mobile.
  *
- * ⚠️ UNKNOWN_CATEGORY_ID must be set by product owner after running
- * MIGRATION-3 (supabase/migrations/20260428000003_mobile_unknown_category_seed.sql).
- *
- * To get the UUID: run the verification SELECT in MIGRATION-3 and copy
- * the value from the unknown_category_id column.
- *
  * Source of truth: docs/schema-map.json
  */
 
 /**
- * The UUID of the reserved 'Unknown' category row in the categories table.
- * Used when a member submits a transaction without a known category.
- * Never hardcode category names in application logic — always use this constant.
+ * Stable name of the reserved Unknown category row seeded per tenant by MIGRATION-3.
+ * Use this as the lookup key when resolving the per-tenant UUID at runtime:
+ *   SELECT id FROM categories WHERE name = UNKNOWN_CATEGORY_NAME AND tenant_id = $tenantId
  *
- * Set this value after running MIGRATION-3 in Supabase SQL Editor.
+ * Multiple tenants exist (confirmed 2026-04-28) — UNKNOWN_CATEGORY_ID is not a
+ * single hardcoded UUID. Always resolve it via query scoped to the active tenant.
  */
-export const UNKNOWN_CATEGORY_ID = 'REPLACE_WITH_UUID_FROM_MIGRATION_3' as const;
+export const UNKNOWN_CATEGORY_NAME = 'Unknown' as const;
 
 /**
  * Valid expense_types slugs as of 2026-04-28 (from live DB).
