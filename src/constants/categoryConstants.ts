@@ -22,13 +22,6 @@
 export const UNKNOWN_CATEGORY_ID = 'REPLACE_WITH_UUID_FROM_MIGRATION_3' as const;
 
 /**
- * The display name of the reserved 'Unknown' category row.
- * Used by categoryService.resolveUnknownCategoryId() to locate
- * the per-tenant Unknown category at runtime — never hardcode the UUID.
- */
-export const UNKNOWN_CATEGORY_NAME = 'Unknown' as const;
-
-/**
  * Valid expense_types slugs as of 2026-04-28 (from live DB).
  * These are fetched at runtime from the expense_types table — do not
  * hardcode them in UI components. This list is for reference only.
