@@ -15,22 +15,25 @@ import { useDashboard } from '../../src/hooks/useDashboard';
 import { CategoryBudgetRow } from '../../src/components/CategoryBudgetRow';
 import { FAB } from '../../src/components/FAB';
 import { TransactionEntryModal } from '../../src/components/TransactionEntryModal';
+import { SyncStatusIcon } from '../../src/components/SyncStatusIcon';
 import { formatCurrency, getCurrentMonthStart } from '../../src/services/dashboardService';
 import type { CategoryBudgetLine } from '../../src/services/dashboardService';
 
 /**
- * Member Personal Budget Dashboard — STORY-2.1, STORY-2.2, STORY-4.1
+ * Member Personal Budget Dashboard — STORY-2.1, STORY-2.2, STORY-2.3, STORY-4.1, STORY-4.2
  *
  * AC coverage:
  * - Current month budget vs actual by category ✓
  * - Data fetched via RLS — own data only ✓
  * - Loading skeleton while fetching ✓
  * - Pull-to-refresh ✓
- * - Post-transaction refresh (via refresh() on FAB modal close) ✓
+ * - Dashboard refresh after online transaction (onSuccess) ✓
  * - Error state with retry ✓
  * - Empty state if no budget ✓
  * - Signed amount convention respected (ABS for display) ✓
- * - FAB visible and accessible from this screen ✓
+ * - FAB opens full transaction form (STORY-4.2) ✓
+ * - Offline banner shown when displaying cached data (STORY-2.3) ✓
+ * - SyncStatusIcon in header (STORY-5.1) ✓
  */
 export default function MemberDashboard() {
   const { user } = useAuthStore();
@@ -50,11 +53,11 @@ export default function MemberDashboard() {
     setIsRefreshing(false);
   }, [refresh]);
 
+  // Called only after successful ONLINE submission (STORY-4.2)
+  // Offline submission does not refresh — cached data shown with offline banner
   const handleModalClose = useCallback(() => {
     setModalVisible(false);
-    // Refresh dashboard after transaction entry (STORY-2.2)
-    void refresh();
-  }, [refresh]);
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -97,9 +100,13 @@ export default function MemberDashboard() {
           </Text>
           <Text style={styles.month}>{monthLabel}</Text>
         </View>
-        <TouchableOpacity onPress={() => void handleLogout()}>
-          <Text style={styles.signOut}>Sign out</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {/* Sync status badge — navigates to pending-transactions on tap */}
+          <SyncStatusIcon />
+          <TouchableOpacity onPress={() => void handleLogout()}>
+            <Text style={styles.signOut}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Summary totals */}
@@ -128,6 +135,15 @@ export default function MemberDashboard() {
         </View>
       )}
 
+      {/* Offline banner — STORY-2.3 */}
+      {data?.isOfflineCached && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>
+            📶 Offline — showing last saved data
+          </Text>
+        </View>
+      )}
+
       {/* Category list */}
       {!data || data.lines.length === 0 ? (
         <View style={styles.emptyState}>
@@ -153,13 +169,14 @@ export default function MemberDashboard() {
         />
       )}
 
-      {/* Persistent FAB — STORY-4.1 */}
+      {/* Persistent FAB — STORY-4.1/4.2 */}
       <FAB onPress={() => setModalVisible(true)} />
 
-      {/* Transaction entry modal stub — full form in WP-3 */}
+      {/* Full transaction entry form — STORY-4.2 */}
       <TransactionEntryModal
         visible={isModalVisible}
         onClose={handleModalClose}
+        onSuccess={() => void refresh()}
       />
     </View>
   );
@@ -209,6 +226,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   greeting: {
     fontSize: 22,
     fontWeight: '700',
@@ -254,8 +276,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1a1a1a',
   },
+  offlineBanner: {
+    backgroundColor: '#fef3c7',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 0,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#f59e0b',
+  },
+  offlineBannerText: {
+    fontSize: 13,
+    color: '#92400e',
+    fontWeight: '500',
+  },
   list: {
     paddingHorizontal: 16,
+    paddingTop: 8,
     paddingBottom: 100,
   },
   emptyState: {

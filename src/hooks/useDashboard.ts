@@ -1,21 +1,30 @@
 import { useCallback } from 'react';
+import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../stores/authStore';
 import { useDashboardStore } from '../stores/dashboardStore';
 import {
   fetchDashboardData,
   getCurrentMonthStart,
 } from '../services/dashboardService';
+import {
+  saveDashboardCache,
+  loadDashboardCache,
+} from '../services/dashboardCacheService';
 
 /**
- * Hook for fetching and refreshing dashboard data.
+ * useDashboard hook — STORY-2.1, STORY-2.2, STORY-2.3
  *
- * Used by MemberDashboard and AdminDashboard (with targetUserId override).
- * Automatically uses current month. Exposes refresh() for pull-to-refresh
- * and post-transaction refresh (STORY-2.2).
+ * Online: fetches from Supabase, saves to AsyncStorage cache.
+ * Offline: loads from AsyncStorage cache, sets isOfflineCached flag.
  *
- * tenant_id is sourced from authStore (set at login via tenant_members query).
- * It is NOT read from JWT app_metadata — that field is not set by the web app.
- * See resolveRole.ts for the source of truth.
+ * tenant_id is read from authStore (set at login via tenant_members query).
+ * No extra DB round-trip on each refresh.
+ *
+ * AC coverage (STORY-2.3):
+ * - Offline: shows last-known cached data ✓
+ * - Offline banner shown when displaying cached data ✓
+ * - Cache written after every successful remote fetch ✓
+ * - No cache: empty state shown (not error crash) ✓
  */
 export function useDashboard(targetUserId?: string) {
   const { user, tenantId } = useAuthStore();
@@ -33,8 +42,32 @@ export function useDashboard(targetUserId?: string) {
 
     try {
       const monthStart = getCurrentMonthStart();
-      const data = await fetchDashboardData(userId, tenantId, monthStart);
-      setData(data);
+
+      // Check connectivity
+      const netState = await NetInfo.fetch();
+      const isOnline = netState.isConnected && netState.isInternetReachable;
+
+      if (isOnline) {
+        // Online path — fetch from Supabase, save to cache
+        const data = await fetchDashboardData(userId, tenantId, monthStart);
+
+        if (data) {
+          await saveDashboardCache(userId, monthStart, data);
+        }
+
+        setData(data);
+      } else {
+        // Offline path — load from cache
+        const cached = await loadDashboardCache(userId, monthStart);
+
+        if (cached) {
+          // Mark as offline cached so dashboard can show offline banner (STORY-2.3)
+          setData({ ...cached, isOfflineCached: true });
+        } else {
+          // No cache available — show empty state, not error
+          setData(null);
+        }
+      }
     } catch {
       setError('Failed to load dashboard. Please try again.');
     } finally {

@@ -30,6 +30,7 @@ export interface DashboardData {
   lines: CategoryBudgetLine[];
   totalBudgeted: number;
   totalActual: number;
+  isOfflineCached?: boolean;  // true when showing last-known cached data (STORY-2.3)
 }
 
 /**
