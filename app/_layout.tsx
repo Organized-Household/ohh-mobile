@@ -33,7 +33,7 @@ export default function RootLayout() {
         }
         setRole(membership.role);
         setTenantId(membership.tenantId);
-        router.replace(membership.role === 'admin' ? '/(app)/admin' : '/(app)/');
+        router.replace(membership.role === 'admin' ? '/(app)/admin' : '/(app)');
       } else {
         setLoading(false);
         router.replace('/(auth)/login');
@@ -63,7 +63,7 @@ export default function RootLayout() {
 
           // Only route on SIGNED_IN — not on every TOKEN_REFRESHED
           if (event === 'SIGNED_IN') {
-            router.replace(membership.role === 'admin' ? '/(app)/admin' : '/(app)/');
+            router.replace(membership.role === 'admin' ? '/(app)/admin' : '/(app)');
           }
         }
       }
