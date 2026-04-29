@@ -9,24 +9,24 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "expo": "~53.0.0",
-    "expo-router": "~4.0.0",
-    "expo-secure-store": "~14.0.0",
-    "expo-status-bar": "~2.0.0",
-    "expo-file-system": "~18.0.0",
-    "expo-task-manager": "~12.0.0",
-    "expo-notifications": "~0.30.0",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "11.4.1",
     "@supabase/supabase-js": "^2.49.0",
-    "@react-native-async-storage/async-storage": "1.23.1",
-    "@react-native-community/netinfo": "^11.4.1",
+    "expo": "^54.0.0",
+    "expo-file-system": "~19.0.22",
+    "expo-notifications": "~0.32.17",
+    "expo-router": "~6.0.23",
+    "expo-secure-store": "~15.0.8",
+    "expo-status-bar": "~3.0.9",
+    "expo-task-manager": "~14.0.9",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
     "react-native-url-polyfill": "^2.0.0",
-    "zustand": "^5.0.3",
-    "react": "19.0.0",
-    "react-native": "0.79.0"
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
-    "@types/react": "~19.0.0",
+    "@types/react": "~19.1.10",
     "typescript": "^5.8.0"
   }
 }
