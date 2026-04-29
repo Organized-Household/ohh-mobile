@@ -118,12 +118,23 @@ async function processQueue(): Promise<void> {
       let succeeded = false;
 
       // Attempt with exponential backoff
+      // Retry count is persisted after each failure so progress survives restart (STORY-5.3)
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (attempt > 0) {
           await delay(BACKOFF_MS[attempt - 1] ?? 4000);
         }
 
         succeeded = await submitTransaction(tx);
+
+        if (!succeeded) {
+          // Persist retry count after each individual failure (survives app restart)
+          await updateTransactionStatus(
+            tx.localUUID,
+            'PENDING_SYNC',
+            tx.retryCount + attempt + 1
+          );
+        }
+
         if (succeeded) break;
       }
 
