@@ -16,22 +16,23 @@ import { useAuthStore } from '../src/stores/authStore';
 export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
-  const { setSession, setRole, setLoading, clearAuth } = useAuthStore();
+  const { setSession, setRole, setTenantId, setLoading, clearAuth } = useAuthStore();
 
   useEffect(() => {
     // Restore existing session on app launch
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
         setSession(session);
-        const role = await resolveUserRole(session.user.id);
-        if (!role) {
+        const membership = await resolveUserRole(session.user.id);
+        if (!membership) {
           // Member removed or deactivated
           clearAuth();
           router.replace('/account-deactivated');
           return;
         }
-        setRole(role);
-        router.replace(role === 'admin' ? '/(app)/admin' : '/(app)/');
+        setRole(membership.role);
+        setTenantId(membership.tenantId);
+        router.replace(membership.role === 'admin' ? '/(app)/admin' : '/(app)/');
       } else {
         setLoading(false);
         router.replace('/(auth)/login');
@@ -49,18 +50,19 @@ export default function RootLayout() {
 
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           setSession(session);
-          const role = await resolveUserRole(session.user.id);
-          if (!role) {
+          const membership = await resolveUserRole(session.user.id);
+          if (!membership) {
             clearAuth();
             router.replace('/account-deactivated');
             return;
           }
-          setRole(role);
+          setRole(membership.role);
+          setTenantId(membership.tenantId);
           setLoading(false);
 
           // Only route on SIGNED_IN — not on every TOKEN_REFRESHED
           if (event === 'SIGNED_IN') {
-            router.replace(role === 'admin' ? '/(app)/admin' : '/(app)/');
+            router.replace(membership.role === 'admin' ? '/(app)/admin' : '/(app)/');
           }
         }
       }
