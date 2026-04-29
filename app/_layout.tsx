@@ -3,6 +3,7 @@ import { Slot, useRouter, useSegments } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
 import { resolveUserRole } from '../src/lib/resolveRole';
 import { useAuthStore } from '../src/stores/authStore';
+import { initSyncEngine } from '../src/services/syncEngine';
 
 /**
  * Root layout — handles auth state listening and routing.
@@ -69,6 +70,14 @@ export default function RootLayout() {
     );
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    // Initialize SyncEngine singleton — runs for the lifetime of the app
+    // Listens for NetInfo connectivity restore and AppState foreground events
+    // STORY-5.2
+    const cleanup = initSyncEngine();
+    return cleanup;
   }, []);
 
   return <Slot />;
