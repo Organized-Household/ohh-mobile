@@ -1,4 +1,7 @@
-import * as FileSystem from 'expo-file-system';
+// expo-file-system v19 (SDK 54) restructured the API.
+// Legacy import preserves documentDirectory, getInfoAsync, readAsStringAsync,
+// writeAsStringAsync, and EncodingType used throughout this file.
+import * as FileSystem from 'expo-file-system/legacy';
 import type { OfflinePendingTransaction, SyncStatus } from '../types/offline';
 
 /**
