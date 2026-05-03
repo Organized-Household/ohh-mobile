@@ -21,6 +21,9 @@
  */
 export const UNKNOWN_CATEGORY_ID = 'REPLACE_WITH_UUID_FROM_MIGRATION_3' as const;
 
+/** Reserved display name for the catch-all Unknown category seeded by MIGRATION-3. */
+export const UNKNOWN_CATEGORY_NAME = 'Unknown' as const;
+
 /**
  * Valid expense_types slugs as of 2026-04-28 (from live DB).
  * These are fetched at runtime from the expense_types table — do not
