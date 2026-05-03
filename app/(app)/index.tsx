@@ -38,16 +38,17 @@ import type { CategoryBudgetLine } from '../../src/services/dashboardService';
  */
 export default function MemberDashboard() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, tenantId } = useAuthStore();
   const { data, isLoading, error } = useDashboardStore();
   const { refresh } = useDashboard();
   const [isModalVisible, setModalVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Initial load
+  // Initial load — guard against race condition where screen mounts before
+  // authStore is populated by _layout.tsx session restore
   useEffect(() => {
-    void refresh();
-  }, []);
+    if (user?.id && tenantId) void refresh();
+  }, [user?.id, tenantId]);
 
   const handlePullToRefresh = useCallback(async () => {
     setIsRefreshing(true);

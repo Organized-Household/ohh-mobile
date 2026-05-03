@@ -68,8 +68,8 @@ export default function AdminDashboard() {
   const { refresh } = useDashboard(targetUserId);
 
   useEffect(() => {
-    if (targetUserId) void refresh();
-  }, [targetUserId]);
+    if (targetUserId && tenantId) void refresh();
+  }, [targetUserId, tenantId]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
