@@ -63,6 +63,7 @@ export default function AdminDashboard() {
     if (!tm?.tenant_id) return;
     setTenantId(tm.tenant_id);
 
+    await supabase.auth.refreshSession();
     const allMembers = await fetchHouseholdMembers(tm.tenant_id);
     setMembers(allMembers);
 
