@@ -13,6 +13,18 @@ export default function AppLayout() {
           title: 'Pending Sync',
         }}
       />
+      <Stack.Screen
+        name="categories"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="accounts"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="budget-view"
+        options={{ headerShown: false }}
+      />
     </Stack>
   );
 }
