@@ -38,28 +38,15 @@ import type { CategoryBudgetLine } from '../../src/services/dashboardService';
  */
 export default function MemberDashboard() {
   const router = useRouter();
-  const { user, tenantId } = useAuthStore();
-  const { data, isLoading, error, setError } = useDashboardStore();
+  const { user } = useAuthStore();
+  const { data, isLoading, error } = useDashboardStore();
   const { refresh } = useDashboard();
   const [isModalVisible, setModalVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Initial load — guard against race condition where screen mounts before
-  // authStore is populated by _layout.tsx session restore
+  // Initial load
   useEffect(() => {
-    if (user?.id && tenantId) void refresh();
-  }, [user?.id, tenantId]);
-
-  // Timeout fallback — if authStore isn't populated within 5 seconds of mount,
-  // the session is stale or broken; sign out to force a clean login
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!user?.id || !tenantId) {
-        setError('Session expired. Please sign in again.');
-        void supabase.auth.signOut();
-      }
-    }, 5000);
-    return () => clearTimeout(timer);
+    void refresh();
   }, []);
 
   const handlePullToRefresh = useCallback(async () => {

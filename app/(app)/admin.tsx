@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -36,24 +36,34 @@ import {
  * - Removed/inactive members excluded (is_active filter) ✓
  */
 export default function AdminDashboard() {
-  const { user, tenantId } = useAuthStore();
+  const { user } = useAuthStore();
   const { members, selectedMember, setMembers, setSelectedMember } =
     useAdminStore();
   const { data, isLoading } = useDashboardStore();
+  const [tenantId, setTenantId] = useState<string>('');
   const [isMemberPickerVisible, setMemberPickerVisible] = useState(false);
   const [isTransactionModalVisible, setTransactionModalVisible] =
     useState(false);
 
-  // Load members on mount — tenantId comes from authStore (set at login via resolveUserRole)
+  // Resolve tenant and load members on mount
   useEffect(() => {
     loadAdminData();
-  }, [user?.id, tenantId]);
+  }, [user?.id]);
 
   async function loadAdminData() {
-    if (!user?.id || !tenantId) return;
+    if (!user?.id) return;
 
-    await supabase.auth.refreshSession();
-    const allMembers = await fetchHouseholdMembers(tenantId);
+    const { data: tm } = await supabase
+      .from('tenant_members')
+      .select('tenant_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .single();
+
+    if (!tm?.tenant_id) return;
+    setTenantId(tm.tenant_id);
+
+    const allMembers = await fetchHouseholdMembers(tm.tenant_id);
     setMembers(allMembers);
 
     // Default selection: admin's own record
@@ -68,8 +78,8 @@ export default function AdminDashboard() {
   const { refresh } = useDashboard(targetUserId);
 
   useEffect(() => {
-    if (targetUserId && tenantId) void refresh();
-  }, [targetUserId, tenantId]);
+    if (targetUserId) void refresh();
+  }, [targetUserId]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

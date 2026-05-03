@@ -34,7 +34,6 @@ export function useDashboard(targetUserId?: string) {
 
   const refresh = useCallback(async () => {
     if (!userId || !tenantId) {
-      console.error('useDashboard: missing userId or tenantId', { userId, tenantId });
       setError('Household configuration error. Please sign in again.');
       return;
     }

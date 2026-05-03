@@ -46,10 +46,7 @@ export async function fetchHouseholdMembers(
     .eq('is_active', true)
     .order('role'); // admins first
 
-  if (error || !data) {
-    console.error('fetchHouseholdMembers error:', JSON.stringify(error));
-    return [];
-  }
+  if (error || !data) return [];
 
   return data
     .filter((m) => {
