@@ -58,6 +58,7 @@ export async function fetchDashboardData(
     .single();
 
   if (budgetError || !budget) {
+    if (budgetError) console.error('fetchDashboardData budgets error:', JSON.stringify(budgetError));
     // No budget set for this month — return empty state
     return null;
   }

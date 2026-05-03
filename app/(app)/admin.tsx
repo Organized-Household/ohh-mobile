@@ -53,13 +53,14 @@ export default function AdminDashboard() {
   async function loadAdminData() {
     if (!user?.id) return;
 
-    const { data: tm } = await supabase
+    const { data: tm, error: tmError } = await supabase
       .from('tenant_members')
       .select('tenant_id')
       .eq('user_id', user.id)
       .eq('is_active', true)
       .single();
 
+    if (tmError) console.error('admin loadAdminData error:', JSON.stringify(tmError));
     if (!tm?.tenant_id) return;
     setTenantId(tm.tenant_id);
 
