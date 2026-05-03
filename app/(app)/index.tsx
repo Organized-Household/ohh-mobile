@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useDashboardStore } from '../../src/stores/dashboardStore';
@@ -36,6 +37,7 @@ import type { CategoryBudgetLine } from '../../src/services/dashboardService';
  * - SyncStatusIcon in header (STORY-5.1) ✓
  */
 export default function MemberDashboard() {
+  const router = useRouter();
   const { user } = useAuthStore();
   const { data, isLoading, error } = useDashboardStore();
   const { refresh } = useDashboard();
@@ -168,6 +170,28 @@ export default function MemberDashboard() {
           }
         />
       )}
+
+      {/* Quick access navigation — STORY-7.1, 7.2, 6.1 */}
+      <View style={styles.navLinks}>
+        <TouchableOpacity
+          style={styles.navLink}
+          onPress={() => router.push('/(app)/accounts')}
+        >
+          <Text style={styles.navLinkText}>My Accounts</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.navLink}
+          onPress={() => router.push('/(app)/budget-view')}
+        >
+          <Text style={styles.navLinkText}>Budget Detail</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.navLink}
+          onPress={() => router.push('/(app)/categories')}
+        >
+          <Text style={styles.navLinkText}>Categories</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Persistent FAB — STORY-4.1/4.2 */}
       <FAB onPress={() => setModalVisible(true)} />
@@ -315,4 +339,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
+  navLinks: {
+    flexDirection: 'row', paddingHorizontal: 16,
+    paddingVertical: 12, gap: 8,
+  },
+  navLink: {
+    flex: 1, backgroundColor: '#fff', borderRadius: 10,
+    paddingVertical: 12, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+  },
+  navLinkText: { fontSize: 13, fontWeight: '600', color: '#2563eb' },
 });

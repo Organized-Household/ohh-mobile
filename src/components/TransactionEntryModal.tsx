@@ -22,11 +22,14 @@ import { fetchAccountsForMember } from '../services/accountService';
 import type { Category } from '../services/categoryService';
 import type { Account } from '../services/accountService';
 import type { OfflinePendingTransaction } from '../types/offline';
+import type { HouseholdMember } from '../services/memberService';
 
 interface Props {
   visible: boolean;
   onClose: () => void;
   onSuccess: () => void; // Called after successful online submission — triggers dashboard refresh
+  adminTargetUserId?: string; // STORY-4.3 — if set, admin is entering on behalf of this member
+  adminMembers?: HouseholdMember[]; // STORY-4.3 — list of members for on-behalf-of display
 }
 
 /**
@@ -50,7 +53,7 @@ interface Props {
  *
  * Schema: transaction_date, created_by_user_id, NO source/status columns.
  */
-export function TransactionEntryModal({ visible, onClose, onSuccess }: Props) {
+export function TransactionEntryModal({ visible, onClose, onSuccess, adminTargetUserId, adminMembers }: Props) {
   const { user, tenantId } = useAuthStore();
   const { setCounts } = useSyncStatusStore();
 
@@ -123,7 +126,7 @@ export function TransactionEntryModal({ visible, onClose, onSuccess }: Props) {
     const payload = {
       id: localUUID,
       tenant_id: tenantId,
-      created_by_user_id: user.id,
+      created_by_user_id: adminTargetUserId ?? user.id,
       category_id: selectedCategoryId,
       description: description.trim() || '',
       amount: signedAmount,
@@ -209,6 +212,16 @@ export function TransactionEntryModal({ visible, onClose, onSuccess }: Props) {
         <View style={styles.handle} />
 
         <Text style={styles.title}>Add Transaction</Text>
+
+        {/* On-behalf-of banner — STORY-4.3 */}
+        {adminTargetUserId && adminMembers && (
+          <View style={styles.onBehalfBanner}>
+            <Text style={styles.onBehalfText}>
+              📋 On behalf of:{' '}
+              {adminMembers.find((m) => m.userId === adminTargetUserId)?.displayName ?? 'Member'}
+            </Text>
+          </View>
+        )}
 
         {/* Transaction type toggle */}
         <View style={styles.typeRow}>
@@ -402,4 +415,17 @@ const styles = StyleSheet.create({
   cancelButton: { alignItems: 'center', paddingVertical: 12, marginHorizontal: 20 },
   cancelText: { fontSize: 16, color: '#888' },
   bottomPad: { height: 40 },
+  onBehalfBanner: {
+    backgroundColor: '#eff6ff',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: '#2563eb',
+  },
+  onBehalfText: {
+    fontSize: 14,
+    color: '#1d4ed8',
+    fontWeight: '500',
+  },
 });

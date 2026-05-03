@@ -4,6 +4,7 @@ export interface Account {
   id: string;
   name: string;
   account_kind: 'savings' | 'investment' | 'debt';
+  opening_balance: number | null; // schema-map.json → accounts: no balance column; opening_balance is the balance figure for mobile v1
 }
 
 /**
@@ -20,7 +21,7 @@ export async function fetchAccountsForMember(
 ): Promise<Account[]> {
   const { data, error } = await supabase
     .from('accounts')
-    .select('id, name, account_kind')
+    .select('id, name, account_kind, opening_balance')
     .eq('tenant_id', tenantId)
     .eq('user_id', userId)
     .eq('is_active', true)
