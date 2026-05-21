@@ -1,13 +1,20 @@
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/supabase';
 import { Platform } from 'react-native';
+import { supabase } from '../lib/supabase';
 import { NavigationService } from './navigationService';
 
-type PermissionState = 'NOT_REQUESTED' | 'REQUESTING' | 'GRANTED' | 'DENIED';
+const PERMISSION_STATE_KEY = '@ohh-finance/push-permission-state';
 
-const PERMISSION_KEY = '@ohh_finance:push_permission_state';
+export type PermissionState = 'NOT_REQUESTED' | 'REQUESTING' | 'GRANTED' | 'DENIED';
 
+export interface NotificationServiceInterface {
+  requestPermission(): Promise<void>;
+  getPermissionState(): Promise<PermissionState>;
+  registerPushToken(userId: string, tenantId: string): Promise<void>;
+}
+
+// STORY-8.2: Budget alert payload contract
 export interface BudgetAlertPayload {
   type: '80_PERCENT_ALERT';
   categoryId: string;
@@ -15,35 +22,23 @@ export interface BudgetAlertPayload {
   consumptionPercent: number;
 }
 
-/**
- * NotificationService manages push notification lifecycle:
- * - Permission request and state persistence
- * - Expo push token registration to device_tokens table
- * - Foreground notification handler (in-app banner)
- * - Background/tap notification handler (deep-link navigation)
- */
-export class NotificationService {
-  private static instance: NotificationService | null = null;
-  private permissionState: PermissionState = 'NOT_REQUESTED';
-  private isInitialized = false;
-  private foregroundSubscription: Notifications.Subscription | null = null;
-  private responseSubscription: Notifications.Subscription | null = null;
+class NotificationService implements NotificationServiceInterface {
+  private static instance: NotificationService;
+  private initialized = false;
 
-  private constructor() {
-    this.configureForegroundBehavior();
-  }
+  private constructor() {}
 
-  static getInstance(): NotificationService {
+  public static getInstance(): NotificationService {
     if (!NotificationService.instance) {
       NotificationService.instance = new NotificationService();
     }
     return NotificationService.instance;
   }
 
-  /**
-   * Configure how notifications are presented when app is in foreground.
-   */
-  private configureForegroundBehavior(): void {
+  // STORY-8.2: Initialize notification handlers for foreground alerts and tap responses
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
@@ -51,205 +46,131 @@ export class NotificationService {
         shouldSetBadge: false,
       }),
     });
+
+    Notifications.addNotificationReceivedListener(this.handleNotificationReceived);
+    Notifications.addNotificationResponseReceivedListener(this.handleNotificationResponse);
+
+    this.initialized = true;
   }
 
-  /**
-   * Initialize notification service:
-   * - Load permission state from AsyncStorage
-   * - Request permission if NOT_REQUESTED and authenticated
-   * - Register Expo push token if permission GRANTED
-   * - Set up notification listeners
-   */
-  async initialize(userId: string | null): Promise<void> {
-    if (this.isInitialized) {
-      return;
-    }
-
-    await this.loadPermissionState();
-
-    if (userId) {
-      if (this.permissionState === 'NOT_REQUESTED') {
-        await this.requestPermission();
-      }
-
-      if (this.permissionState === 'GRANTED') {
-        await this.registerPushToken(userId);
-      }
-    }
-
-    this.setupNotificationListeners();
-    this.isInitialized = true;
-  }
-
-  /**
-   * Set up notification listeners:
-   * - Foreground: display in-app banner
-   * - Background/tap: navigate to dashboard with category highlight
-   */
-  private setupNotificationListeners(): void {
-    this.foregroundSubscription = Notifications.addNotificationReceivedListener(
-      this.handleForegroundNotification.bind(this)
-    );
-
-    this.responseSubscription = Notifications.addNotificationResponseReceivedListener(
-      this.handleNotificationResponse.bind(this)
-    );
-  }
-
-  /**
-   * Handle notification received while app is in foreground.
-   * Display in-app banner (configured via setNotificationHandler).
-   */
-  private handleForegroundNotification(
-    notification: Notifications.Notification
-  ): void {
+  // STORY-8.2: Handle foreground notification receipt
+  private handleNotificationReceived = (notification: Notifications.Notification) => {
     const data = notification.request.content.data as Partial<BudgetAlertPayload>;
-    console.log('[NotificationService] Foreground notification received:', {
-      type: data.type,
-      categoryName: data.categoryName,
-      consumptionPercent: data.consumptionPercent,
-    });
-  }
+    if (data.type === '80_PERCENT_ALERT') {
+      console.log('[NotificationService] 80% budget alert received in foreground:', {
+        categoryName: data.categoryName,
+        consumptionPercent: data.consumptionPercent,
+      });
+    }
+  };
 
-  /**
-   * Handle notification tap (user interaction).
-   * Navigate to dashboard with category highlight.
-   * Handles both backgrounded and closed app states.
-   */
-  private handleNotificationResponse(
-    response: Notifications.NotificationResponse
-  ): void {
+  // STORY-8.3: Handle notification tap — navigate to dashboard with category highlight
+  private handleNotificationResponse = (response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data as Partial<BudgetAlertPayload>;
-    
-    console.log('[NotificationService] Notification tap received:', {
-      type: data.type,
-      categoryId: data.categoryId,
-      categoryName: data.categoryName,
-    });
-
-    if (data.type === '80_PERCENT_ALERT' && data.categoryId) {
-      NavigationService.navigateToDashboard(data.categoryId);
-    } else {
-      NavigationService.navigateToDashboard();
-    }
-  }
-
-  /**
-   * Load permission state from AsyncStorage.
-   */
-  private async loadPermissionState(): Promise<void> {
-    try {
-      const stored = await AsyncStorage.getItem(PERMISSION_KEY);
-      if (stored) {
-        this.permissionState = stored as PermissionState;
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        console.error('[NotificationService] loadPermissionState error:', err.message);
-      }
-    }
-  }
-
-  /**
-   * Save permission state to AsyncStorage.
-   */
-  private async savePermissionState(state: PermissionState): Promise<void> {
-    this.permissionState = state;
-    try {
-      await AsyncStorage.setItem(PERMISSION_KEY, state);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        console.error('[NotificationService] savePermissionState error:', err.message);
-      }
-    }
-  }
-
-  /**
-   * Request push notification permission.
-   * Called once on first authenticated launch if NOT_REQUESTED.
-   */
-  async requestPermission(): Promise<void> {
-    if (this.permissionState !== 'NOT_REQUESTED') {
-      return;
-    }
-
-    await this.savePermissionState('REQUESTING');
-
-    try {
-      const { status } = await Notifications.requestPermissionsAsync();
-      if (status === 'granted') {
-        await this.savePermissionState('GRANTED');
+    if (data.type === '80_PERCENT_ALERT') {
+      console.log('[NotificationService] 80% budget alert tapped:', {
+        categoryName: data.categoryName,
+        categoryId: data.categoryId,
+      });
+      if (data.categoryId) {
+        NavigationService.navigateToDashboard(data.categoryId);
       } else {
-        await this.savePermissionState('DENIED');
+        NavigationService.navigateToDashboard();
       }
+    }
+  };
+
+  async getPermissionState(): Promise<PermissionState> {
+    try {
+      const stored = await AsyncStorage.getItem(PERMISSION_STATE_KEY);
+      if (stored === 'GRANTED' || stored === 'DENIED') {
+        return stored as PermissionState;
+      }
+      return 'NOT_REQUESTED';
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        console.error('[NotificationService] requestPermission error:', err.message);
-      }
-      await this.savePermissionState('DENIED');
+      console.error('[NotificationService] Failed to read permission state:', err);
+      return 'NOT_REQUESTED';
     }
   }
 
-  /**
-   * Register Expo push token to device_tokens table.
-   * Called on every authenticated launch if permission is GRANTED.
-   * Handles token rotation automatically.
-   */
-  async registerPushToken(userId: string): Promise<void> {
-    if (this.permissionState !== 'GRANTED') {
+  private async setPermissionState(state: PermissionState): Promise<void> {
+    try {
+      await AsyncStorage.setItem(PERMISSION_STATE_KEY, state);
+    } catch (err: unknown) {
+      console.error('[NotificationService] Failed to write permission state:', err);
+    }
+  }
+
+  async requestPermission(): Promise<void> {
+    const currentState = await this.getPermissionState();
+    if (currentState === 'GRANTED' || currentState === 'DENIED') {
+      console.log('[NotificationService] Permission already decided:', currentState);
+      return;
+    }
+
+    await this.setPermissionState('REQUESTING');
+
+    try {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus === 'granted') {
+        await this.setPermissionState('GRANTED');
+        console.log('[NotificationService] Push permission granted');
+      } else {
+        await this.setPermissionState('DENIED');
+        console.log('[NotificationService] Push permission denied');
+      }
+    } catch (err: unknown) {
+      console.error('[NotificationService] Permission request failed:', err);
+      await this.setPermissionState('DENIED');
+    }
+  }
+
+  async registerPushToken(userId: string, tenantId: string): Promise<void> {
+    const permissionState = await this.getPermissionState();
+    if (permissionState !== 'GRANTED') {
+      console.log('[NotificationService] Cannot register push token — permission not granted');
       return;
     }
 
     try {
-      const token = await Notifications.getExpoPushTokenAsync();
+      const token = await Notifications.getExpoPushTokenAsync({
+        projectId: process.env.EXPO_PUBLIC_PROJECT_ID || undefined
+      });
+
       const platform = Platform.OS === 'ios' ? 'ios' : 'android';
 
-      const { error } = await supabase.from('device_tokens').upsert(
-        {
-          user_id: userId,
-          expo_push_token: token.data,
-          platform,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: 'user_id,platform',
-        }
-      );
+      const { error } = await supabase
+        .from('device_tokens')
+        .upsert(
+          {
+            user_id: userId,
+            tenant_id: tenantId,
+            expo_push_token: token.data,
+            platform,
+            updated_at: new Date().toISOString()
+          },
+          {
+            onConflict: 'user_id,platform'
+          }
+        );
 
       if (error) {
-        console.error('[NotificationService] registerPushToken error:', error.message);
-      } else {
-        console.log('[NotificationService] Push token registered:', {
-          platform,
-          token: token.data,
-        });
+        console.error('[NotificationService] Failed to upsert device token:', error);
+        return;
       }
+
+      console.log('[NotificationService] Push token registered successfully');
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        console.error('[NotificationService] registerPushToken error:', err.message);
-      }
+      console.error('[NotificationService] Failed to register push token:', err);
     }
-  }
-
-  /**
-   * Get current permission state.
-   */
-  getPermissionState(): PermissionState {
-    return this.permissionState;
-  }
-
-  /**
-   * Clean up notification listeners.
-   */
-  dispose(): void {
-    if (this.foregroundSubscription) {
-      this.foregroundSubscription.remove();
-      this.foregroundSubscription = null;
-    }
-    if (this.responseSubscription) {
-      this.responseSubscription.remove();
-      this.responseSubscription = null;
-    }
-    this.isInitialized = false;
   }
 }
+
+export const notificationService = NotificationService.getInstance();

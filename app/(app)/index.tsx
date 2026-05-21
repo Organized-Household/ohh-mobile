@@ -1,145 +1,215 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
+  FlatList,
   StyleSheet,
-  ScrollView,
   RefreshControl,
+  TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { supabase } from '../../src/lib/supabase';
+import { useAuthStore } from '../../src/stores/authStore';
+import { useDashboardStore } from '../../src/stores/dashboardStore';
 import { useDashboard } from '../../src/hooks/useDashboard';
 import { CategoryBudgetRow } from '../../src/components/CategoryBudgetRow';
+import { FAB } from '../../src/components/FAB';
+import { TransactionEntryModal } from '../../src/components/TransactionEntryModal';
+import { SyncStatusIcon } from '../../src/components/SyncStatusIcon';
+import { formatCurrency, getCurrentMonthStart } from '../../src/services/dashboardService';
+import type { CategoryBudgetLine } from '../../src/services/dashboardService';
 
-/**
- * Personal Budget Dashboard (Member Home Screen)
- * - Displays current month budget vs. actual by category
- * - Data-isolated per member via RLS
- * - Updates immediately after transaction submission
- * - Offline shows last-known cached state with offline banner
- * - Supports deep-link highlighting via highlightCategoryId param
- */
-export default function DashboardScreen() {
+export default function MemberDashboard() {
+  const router = useRouter();
+  const { user } = useAuthStore();
+  const { data, isLoading, error } = useDashboardStore();
+  const { refresh } = useDashboard();
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // STORY-8.3: Deep-link parameter for category highlight on notification tap
   const params = useLocalSearchParams<{ highlightCategoryId?: string }>();
-  const { data, isLoading, isOffline, refresh } = useDashboard();
-  const [refreshing, setRefreshing] = useState(false);
-  const scrollViewRef = useRef<ScrollView>(null);
-  const categoryRefs = useRef<Map<string, View>>(new Map());
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await refresh();
-    setRefreshing(false);
-  };
+  const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
-    if (params.highlightCategoryId && data?.categories && scrollViewRef.current) {
-      const categoryIndex = data.categories.findIndex(
-        (cat) => cat.categoryId === params.highlightCategoryId
+    void refresh();
+  }, []);
+
+  // STORY-8.3: Scroll to highlighted category when deep-linked from notification
+  useEffect(() => {
+    if (params.highlightCategoryId && data?.lines && flatListRef.current) {
+      const categoryIndex = data.lines.findIndex(
+        (line) => line.categoryId === params.highlightCategoryId
       );
-      
       if (categoryIndex !== -1) {
-        const targetRef = categoryRefs.current.get(params.highlightCategoryId);
-        if (targetRef) {
-          targetRef.measureLayout(
-            scrollViewRef.current.getInnerViewNode(),
-            (_x, y) => {
-              scrollViewRef.current?.scrollTo({ y: y - 100, animated: true });
-            },
-            () => {
-              console.log('[DashboardScreen] measureLayout failed for category highlight');
-            }
-          );
-        }
+        flatListRef.current.scrollToIndex({
+          index: categoryIndex,
+          animated: true,
+          viewOffset: 100,
+        });
       }
     }
-  }, [params.highlightCategoryId, data?.categories]);
+  }, [params.highlightCategoryId, data?.lines]);
 
-  if (isLoading) {
+  const handlePullToRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await refresh();
+    setIsRefreshing(false);
+  }, [refresh]);
+
+  const handleModalClose = useCallback(() => {
+    setModalVisible(false);
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const monthStart = getCurrentMonthStart();
+  const monthLabel = new Date(monthStart).toLocaleDateString('en-CA', {
+    month: 'long',
+    year: 'numeric',
+  });
+
+  if (isLoading && !data) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#2563eb" />
         <Text style={styles.loadingText}>Loading your budget...</Text>
       </View>
     );
   }
 
-  if (!data) {
+  if (error) {
     return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Unable to load dashboard</Text>
-        <Text style={styles.errorSubtext}>
-          {isOffline ? 'You are offline' : 'Please try again'}
-        </Text>
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => void refresh()}>
+          <Text style={styles.retryText}>Try Again</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {isOffline && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineBannerText}>Offline - Showing cached data</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.greeting}>
+            {data?.memberName ?? user?.email?.split('@')[0] ?? 'My Budget'}
+          </Text>
+          <Text style={styles.month}>{monthLabel}</Text>
         </View>
-      )}
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-      >
-        <View style={styles.header}>
-          <Text style={styles.title}>Your Budget</Text>
-          <Text style={styles.subtitle}>{data.month}</Text>
+        <View style={styles.headerRight}>
+          <SyncStatusIcon />
+          <TouchableOpacity onPress={() => void handleLogout()}>
+            <Text style={styles.signOut}>Sign out</Text>
+          </TouchableOpacity>
         </View>
+      </View>
 
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Budget</Text>
-            <Text style={styles.summaryValue}>${data.totalBudget.toFixed(2)}</Text>
+      {/* Summary totals */}
+      {data && (
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Budgeted</Text>
+            <Text style={styles.summaryValue}>
+              {formatCurrency(data.totalBudgeted)}
+            </Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Spent</Text>
-            <Text style={styles.summaryValue}>${data.totalActual.toFixed(2)}</Text>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Spent</Text>
+            <Text style={[styles.summaryValue, { color: '#ef4444' }]}>
+              {formatCurrency(data.totalActual)}
+            </Text>
           </View>
-          <View style={styles.summaryRow}>
+          <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Remaining</Text>
-            <Text
-              style={[
-                styles.summaryValue,
-                data.totalRemaining < 0 && styles.negativeValue,
-              ]}
-            >
-              ${data.totalRemaining.toFixed(2)}
+            <Text style={[styles.summaryValue, { color: '#22c55e' }]}>
+              {formatCurrency(
+                Math.max(0, data.totalBudgeted - data.totalActual)
+              )}
             </Text>
           </View>
         </View>
+      )}
 
-        <View style={styles.categoriesSection}>
-          <Text style={styles.sectionTitle}>By Category</Text>
-          {data.categories.map((category) => {
-            const isHighlighted = params.highlightCategoryId === category.categoryId;
-            return (
-              <View
-                key={category.categoryId}
-                ref={(ref) => {
-                  if (ref) {
-                    categoryRefs.current.set(category.categoryId, ref);
-                  }
-                }}
-                style={[
-                  styles.categoryRowWrapper,
-                  isHighlighted && styles.highlightedCategory,
-                ]}
-              >
-                <CategoryBudgetRow category={category} />
-              </View>
-            );
-          })}
+      {/* Offline banner — STORY-2.3 */}
+      {data?.isOfflineCached && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>
+            📶 Offline — showing last saved data
+          </Text>
         </View>
-      </ScrollView>
+      )}
+
+      {/* Category list */}
+      {!data || data.lines.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>No budget set</Text>
+          <Text style={styles.emptySubtitle}>
+            Set up your budget for {monthLabel} on the web app.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={data.lines}
+          keyExtractor={(item: CategoryBudgetLine) => item.categoryId}
+          renderItem={({ item }) => (
+            <View
+              style={[
+                params.highlightCategoryId === item.categoryId && styles.highlightedCategory,
+              ]}
+            >
+              <CategoryBudgetRow line={item} />
+            </View>
+          )}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handlePullToRefresh}
+              tintColor="#2563eb"
+            />
+          }
+        />
+      )}
+
+      {/* Quick access navigation */}
+      <View style={styles.navLinks}>
+        <TouchableOpacity
+          style={styles.navLink}
+          onPress={() => router.push('/(app)/accounts')}
+        >
+          <Text style={styles.navLinkText}>My Accounts</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.navLink}
+          onPress={() => router.push('/(app)/budget-view')}
+        >
+          <Text style={styles.navLinkText}>Budget Detail</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.navLink}
+          onPress={() => router.push('/(app)/categories')}
+        >
+          <Text style={styles.navLinkText}>Categories</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Persistent FAB */}
+      <FAB onPress={() => setModalVisible(true)} />
+
+      {/* Full transaction entry form */}
+      <TransactionEntryModal
+        visible={isModalVisible}
+        onClose={handleModalClose}
+        onSuccess={() => void refresh()}
+      />
     </View>
   );
 }
@@ -149,104 +219,164 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  centerContainer: {
+  centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    padding: 20,
+    padding: 24,
   },
   loadingText: {
-    marginTop: 16,
+    marginTop: 12,
     fontSize: 16,
     color: '#666',
   },
   errorText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+    fontSize: 16,
+    color: '#ef4444',
+    textAlign: 'center',
+    marginBottom: 16,
   },
-  errorSubtext: {
-    fontSize: 14,
-    color: '#666',
+  retryButton: {
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
   },
-  offlineBanner: {
-    backgroundColor: '#FFA500',
-    padding: 12,
-    alignItems: 'center',
-  },
-  offlineBannerText: {
+  retryText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
   },
   header: {
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-  },
-  summaryCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 16,
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  greeting: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  month: {
+    fontSize: 14,
+    color: '#888',
+    marginTop: 2,
+  },
+  signOut: {
+    fontSize: 14,
+    color: '#2563eb',
+    paddingTop: 4,
   },
   summaryRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 8,
+  },
+  summaryCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
     alignItems: 'center',
-    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   summaryLabel: {
-    fontSize: 16,
-    color: '#666',
+    fontSize: 11,
+    color: '#888',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   summaryValue: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1a1a1a',
   },
-  negativeValue: {
-    color: '#DC3545',
+  offlineBanner: {
+    backgroundColor: '#fef3c7',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 0,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#f59e0b',
   },
-  categoriesSection: {
-    marginBottom: 24,
+  offlineBannerText: {
+    fontSize: 13,
+    color: '#92400e',
+    fontWeight: '500',
   },
-  sectionTitle: {
+  list: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 100,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  emptyTitle: {
     fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 15,
+    color: '#888',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  navLinks: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  navLink: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  navLinkText: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 16,
+    color: '#2563eb',
   },
-  categoryRowWrapper: {
-    marginBottom: 12,
-  },
+  // STORY-8.3: Category highlight style for notification deep-link
   highlightedCategory: {
     backgroundColor: '#FFF9E6',
     borderRadius: 8,
     borderWidth: 2,
     borderColor: '#FFC107',
-    padding: 8,
-    marginHorizontal: -8,
+    marginHorizontal: -4,
+    paddingHorizontal: 4,
   },
 });
