@@ -1,55 +1,53 @@
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import type { CategoryBudgetLine } from '../services/dashboardService';
+import { formatCurrency } from '../services/dashboardService';
 import { CategoryBudgetAlertIndicator } from './CategoryBudgetAlertIndicator';
 
-interface CategoryBudgetRowProps {
-  categoryName: string;
-  budgeted: number;
-  actual: number;
+interface Props {
+  line: CategoryBudgetLine;
 }
 
-export function CategoryBudgetRow({
-  categoryName,
-  budgeted,
-  actual,
-}: CategoryBudgetRowProps) {
-  const remaining = budgeted - actual;
-  const consumptionPercent = budgeted > 0 ? (actual / budgeted) * 100 : 0;
-  const isOverBudget = remaining < 0;
+export function CategoryBudgetRow({ line }: Props) {
+  const barColor =
+    line.percentUsed >= 90
+      ? '#ef4444'
+      : line.percentUsed >= 70
+      ? '#f59e0b'
+      : '#22c55e';
+
+  const barWidth = `${Math.min(100, line.percentUsed)}%` as `${number}%`;
 
   return (
     <View style={styles.container}>
-      <View style={styles.row}>
-        <Text style={styles.categoryName}>{categoryName}</Text>
-        <View style={styles.amounts}>
-          <Text style={styles.actual}>${actual.toFixed(2)}</Text>
-          <Text style={styles.budgeted}>/ ${budgeted.toFixed(2)}</Text>
-        </View>
+      <View style={styles.header}>
+        <Text style={styles.categoryName}>{line.categoryName}</Text>
+        <Text style={styles.percent}>{line.percentUsed}%</Text>
       </View>
-      <View style={styles.progressContainer}>
-        <View style={styles.progressBar}>
-          <View
-            style={[
-              styles.progressFill,
-              {
-                width: `${Math.min(consumptionPercent, 100)}%`,
-                backgroundColor: isOverBudget ? '#DC3545' : consumptionPercent >= 80 ? '#FFA500' : '#28A745',
-              },
-            ]}
-          />
-        </View>
-        <Text
-          style={[
-            styles.remaining,
-            isOverBudget && styles.overBudget,
-          ]}
-        >
-          {isOverBudget ? `Over by $${Math.abs(remaining).toFixed(2)}` : `$${remaining.toFixed(2)} left`}
+
+      {/* Progress bar */}
+      <View style={styles.barTrack}>
+        <View
+          style={[styles.barFill, { width: barWidth, backgroundColor: barColor }]}
+        />
+      </View>
+
+      <View style={styles.amounts}>
+        <Text style={styles.amountLabel}>
+          Spent: <Text style={styles.amountValue}>{formatCurrency(line.actual)}</Text>
+        </Text>
+        <Text style={styles.amountLabel}>
+          Budget: <Text style={styles.amountValue}>{formatCurrency(line.budgeted)}</Text>
+        </Text>
+        <Text style={styles.amountLabel}>
+          Left: <Text style={[styles.amountValue, { color: barColor }]}>
+            {formatCurrency(line.remaining)}
+          </Text>
         </Text>
       </View>
+
       <CategoryBudgetAlertIndicator
-        consumptionPercent={consumptionPercent}
-        categoryName={categoryName}
+        consumptionPercent={line.percentUsed}
+        categoryName={line.categoryName}
       />
     </View>
   );
@@ -57,11 +55,17 @@ export function CategoryBudgetRow({
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  row: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -70,47 +74,35 @@ const styles = StyleSheet.create({
   categoryName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#1a1a1a',
+    flex: 1,
+  },
+  percent: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#666',
+  },
+  barTrack: {
+    height: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 4,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: 8,
+    borderRadius: 4,
   },
   amounts: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    justifyContent: 'space-between',
   },
-  actual: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-    marginRight: 4,
-  },
-  budgeted: {
-    fontSize: 14,
-    color: '#666',
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  progressBar: {
-    flex: 1,
-    height: 8,
-    backgroundColor: '#E5E5E5',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginRight: 8,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  remaining: {
+  amountLabel: {
     fontSize: 12,
-    color: '#666',
-    minWidth: 80,
-    textAlign: 'right',
+    color: '#888',
   },
-  overBudget: {
-    color: '#DC3545',
+  amountValue: {
     fontWeight: '600',
+    color: '#1a1a1a',
   },
 });
