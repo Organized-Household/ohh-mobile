@@ -13,8 +13,17 @@ export interface NotificationServiceInterface {
   registerPushToken(userId: string, tenantId: string): Promise<void>;
 }
 
+// STORY-8.2: Budget alert payload contract
+export interface BudgetAlertPayload {
+  type: '80_PERCENT_ALERT';
+  categoryId: string;
+  categoryName: string;
+  consumptionPercent: number;
+}
+
 class NotificationService implements NotificationServiceInterface {
   private static instance: NotificationService;
+  private initialized = false;
 
   private constructor() {}
 
@@ -24,6 +33,47 @@ class NotificationService implements NotificationServiceInterface {
     }
     return NotificationService.instance;
   }
+
+  // STORY-8.2: Initialize notification handlers for foreground alerts and tap responses
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+
+    Notifications.addNotificationReceivedListener(this.handleNotificationReceived);
+    Notifications.addNotificationResponseReceivedListener(this.handleNotificationResponse);
+
+    this.initialized = true;
+  }
+
+  // STORY-8.2: Handle foreground notification receipt
+  private handleNotificationReceived = (notification: Notifications.Notification) => {
+    const data = notification.request.content.data as Partial<BudgetAlertPayload>;
+    if (data.type === '80_PERCENT_ALERT') {
+      console.log('[NotificationService] 80% budget alert received in foreground:', {
+        categoryName: data.categoryName,
+        consumptionPercent: data.consumptionPercent,
+      });
+    }
+  };
+
+  // STORY-8.2: Handle notification tap — navigation deferred to STORY-8.3
+  private handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+    const data = response.notification.request.content.data as Partial<BudgetAlertPayload>;
+    if (data.type === '80_PERCENT_ALERT') {
+      console.log('[NotificationService] 80% budget alert tapped:', {
+        categoryName: data.categoryName,
+        categoryId: data.categoryId,
+      });
+      // Navigation to category will be implemented in STORY-8.3
+    }
+  };
 
   async getPermissionState(): Promise<PermissionState> {
     try {

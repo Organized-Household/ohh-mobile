@@ -1,20 +1,12 @@
 import { View, Text, StyleSheet } from 'react-native';
 import type { CategoryBudgetLine } from '../services/dashboardService';
 import { formatCurrency } from '../services/dashboardService';
+import { CategoryBudgetAlertIndicator } from './CategoryBudgetAlertIndicator';
 
 interface Props {
   line: CategoryBudgetLine;
 }
 
-/**
- * Renders a single category row in the budget dashboard.
- * Shows category name, progress bar, budgeted vs actual vs remaining.
- *
- * Progress bar colour:
- * - Green: < 70%
- * - Amber: 70–89%
- * - Red: >= 90%
- */
 export function CategoryBudgetRow({ line }: Props) {
   const barColor =
     line.percentUsed >= 90
@@ -52,6 +44,11 @@ export function CategoryBudgetRow({ line }: Props) {
           </Text>
         </Text>
       </View>
+
+      <CategoryBudgetAlertIndicator
+        consumptionPercent={line.percentUsed}
+        categoryName={line.categoryName}
+      />
     </View>
   );
 }
