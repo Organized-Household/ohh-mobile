@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useDashboardStore } from '../../src/stores/dashboardStore';
@@ -20,22 +20,6 @@ import { SyncStatusIcon } from '../../src/components/SyncStatusIcon';
 import { formatCurrency, getCurrentMonthStart } from '../../src/services/dashboardService';
 import type { CategoryBudgetLine } from '../../src/services/dashboardService';
 
-/**
- * Member Personal Budget Dashboard — STORY-2.1, STORY-2.2, STORY-2.3, STORY-4.1, STORY-4.2
- *
- * AC coverage:
- * - Current month budget vs actual by category ✓
- * - Data fetched via RLS — own data only ✓
- * - Loading skeleton while fetching ✓
- * - Pull-to-refresh ✓
- * - Dashboard refresh after online transaction (onSuccess) ✓
- * - Error state with retry ✓
- * - Empty state if no budget ✓
- * - Signed amount convention respected (ABS for display) ✓
- * - FAB opens full transaction form (STORY-4.2) ✓
- * - Offline banner shown when displaying cached data (STORY-2.3) ✓
- * - SyncStatusIcon in header (STORY-5.1) ✓
- */
 export default function MemberDashboard() {
   const router = useRouter();
   const { user } = useAuthStore();
@@ -44,10 +28,29 @@ export default function MemberDashboard() {
   const [isModalVisible, setModalVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Initial load
+  // STORY-8.3: Deep-link parameter for category highlight on notification tap
+  const params = useLocalSearchParams<{ highlightCategoryId?: string }>();
+  const flatListRef = useRef<FlatList>(null);
+
   useEffect(() => {
     void refresh();
   }, []);
+
+  // STORY-8.3: Scroll to highlighted category when deep-linked from notification
+  useEffect(() => {
+    if (params.highlightCategoryId && data?.lines && flatListRef.current) {
+      const categoryIndex = data.lines.findIndex(
+        (line) => line.categoryId === params.highlightCategoryId
+      );
+      if (categoryIndex !== -1) {
+        flatListRef.current.scrollToIndex({
+          index: categoryIndex,
+          animated: true,
+          viewOffset: 100,
+        });
+      }
+    }
+  }, [params.highlightCategoryId, data?.lines]);
 
   const handlePullToRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -55,8 +58,6 @@ export default function MemberDashboard() {
     setIsRefreshing(false);
   }, [refresh]);
 
-  // Called only after successful ONLINE submission (STORY-4.2)
-  // Offline submission does not refresh — cached data shown with offline banner
   const handleModalClose = useCallback(() => {
     setModalVisible(false);
   }, []);
@@ -65,7 +66,6 @@ export default function MemberDashboard() {
     await supabase.auth.signOut();
   };
 
-  // Get current month label
   const monthStart = getCurrentMonthStart();
   const monthLabel = new Date(monthStart).toLocaleDateString('en-CA', {
     month: 'long',
@@ -103,7 +103,6 @@ export default function MemberDashboard() {
           <Text style={styles.month}>{monthLabel}</Text>
         </View>
         <View style={styles.headerRight}>
-          {/* Sync status badge — navigates to pending-transactions on tap */}
           <SyncStatusIcon />
           <TouchableOpacity onPress={() => void handleLogout()}>
             <Text style={styles.signOut}>Sign out</Text>
@@ -156,9 +155,18 @@ export default function MemberDashboard() {
         </View>
       ) : (
         <FlatList
+          ref={flatListRef}
           data={data.lines}
           keyExtractor={(item: CategoryBudgetLine) => item.categoryId}
-          renderItem={({ item }) => <CategoryBudgetRow line={item} />}
+          renderItem={({ item }) => (
+            <View
+              style={[
+                params.highlightCategoryId === item.categoryId && styles.highlightedCategory,
+              ]}
+            >
+              <CategoryBudgetRow line={item} />
+            </View>
+          )}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -171,7 +179,7 @@ export default function MemberDashboard() {
         />
       )}
 
-      {/* Quick access navigation — STORY-7.1, 7.2, 6.1 */}
+      {/* Quick access navigation */}
       <View style={styles.navLinks}>
         <TouchableOpacity
           style={styles.navLink}
@@ -193,10 +201,10 @@ export default function MemberDashboard() {
         </TouchableOpacity>
       </View>
 
-      {/* Persistent FAB — STORY-4.1/4.2 */}
+      {/* Persistent FAB */}
       <FAB onPress={() => setModalVisible(true)} />
 
-      {/* Full transaction entry form — STORY-4.2 */}
+      {/* Full transaction entry form */}
       <TransactionEntryModal
         visible={isModalVisible}
         onClose={handleModalClose}
@@ -340,14 +348,35 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   navLinks: {
-    flexDirection: 'row', paddingHorizontal: 16,
-    paddingVertical: 12, gap: 8,
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
   },
   navLink: {
-    flex: 1, backgroundColor: '#fff', borderRadius: 10,
-    paddingVertical: 12, alignItems: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  navLinkText: { fontSize: 13, fontWeight: '600', color: '#2563eb' },
+  navLinkText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2563eb',
+  },
+  // STORY-8.3: Category highlight style for notification deep-link
+  highlightedCategory: {
+    backgroundColor: '#FFF9E6',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#FFC107',
+    marginHorizontal: -4,
+    paddingHorizontal: 4,
+  },
 });

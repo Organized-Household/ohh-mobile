@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { NavigationService } from './navigationService';
 
 const PERMISSION_STATE_KEY = '@ohh-finance/push-permission-state';
 
@@ -63,7 +64,7 @@ class NotificationService implements NotificationServiceInterface {
     }
   };
 
-  // STORY-8.2: Handle notification tap — navigation deferred to STORY-8.3
+  // STORY-8.3: Handle notification tap — navigate to dashboard with category highlight
   private handleNotificationResponse = (response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data as Partial<BudgetAlertPayload>;
     if (data.type === '80_PERCENT_ALERT') {
@@ -71,7 +72,11 @@ class NotificationService implements NotificationServiceInterface {
         categoryName: data.categoryName,
         categoryId: data.categoryId,
       });
-      // Navigation to category will be implemented in STORY-8.3
+      if (data.categoryId) {
+        NavigationService.navigateToDashboard(data.categoryId);
+      } else {
+        NavigationService.navigateToDashboard();
+      }
     }
   };
 
