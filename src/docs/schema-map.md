@@ -1,23 +1,23 @@
 # OHh Finance — Live Schema Map
 
-**Project:** OHh Finance Mobile (Supabase project ref: `qcbhvzyfsbykdtipyzuk`)  
-**Source:** Live DB introspection (2026-04-28) + migrations MIGRATION-1 through MIGRATION-4  
-**Generated:** 2026-05-22  
-**Warning:** This document is ground truth. Do not use Engineering Spec, artifact descriptions, or Decision Log as schema references where they conflict with this file.
+**Project:** OHh Finance Mobile — Organized-Household Org / **ohh-dev** (Supabase ref: `qcbhvzyfsbykdtipyzuk`)
+**Introspected:** 2026-05-22 via Supabase Management API (live SQL queries against `information_schema`, `pg_indexes`, `pg_policies`, `pg_class`)
+**Ground truth:** This document overrides Engineering Spec, Decision Log, web spec, and mobile seed artifacts wherever they conflict.
 
 ---
 
-## Critical Conventions (do not deviate)
+## Critical Conventions
 
-| Convention | Value |
+| Fact | Value |
 |---|---|
 | Transaction date column | `transaction_date` (NOT `occurred_at`) |
 | Transaction user FK | `created_by_user_id` (NOT `user_id`) |
-| Missing columns | `transactions` has NO `source` or `status` column |
-| Amount sign | income = positive, expense = negative stored in DB; `amount <> 0` enforced |
-| Unknown category | Seeded per tenant via MIGRATION-3: `name='Unknown'`, `category_type='expense'`, `tag='standard'` |
-| device_tokens | Table exists; unique constraint on `(user_id, platform)` |
-| Tag slugs | Valid: `debts`, `standard`, `savings`, `investment`, `charity` — `debt_payment` does NOT exist |
+| Phantom columns | `transactions` has **no** `source` or `status` column |
+| Amount sign | income = positive, expense = negative; `amount <> 0` enforced by DB |
+| Unknown category | Seeded per tenant: `name='Unknown'`, `category_type='expense'`, `tag='standard'` |
+| Tag slugs | Valid: `debts`, `standard`, `savings`, `investment`, `charity` — `debt_payment` does **not** exist |
+| `device_tokens` | Exists; unique on `(user_id, platform)` |
+| Dropped columns | `transactions` ordinal positions 10–15 are gaps (columns were dropped in a prior migration); current columns end at pos 9 then resume at 16, 17 |
 
 ---
 
@@ -45,22 +45,22 @@ Unified account table. Replaces former savings\_accounts, investment\_accounts, 
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
-| `tenant_id` | `uuid` | NOT NULL | — |
-| `user_id` | `uuid` | NOT NULL | — |
-| `account_kind` | `text` | NOT NULL | — |
-| `name` | `text` | NOT NULL | — |
-| `account_subtype` | `text` | NULL | — |
-| `account_number_last4` | `text` | NULL | — |
-| `target_amount` | `numeric` | NULL | — |
-| `target_date` | `date` | NULL | — |
-| `opening_balance` | `numeric` | NULL | — |
-| `interest_rate` | `numeric` | NULL | — |
-| `is_active` | `boolean` | NOT NULL | `true` |
-| `created_at` | `timestamptz` | NOT NULL | `now()` |
-| `updated_at` | `timestamptz` | NOT NULL | `now()` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `tenant_id` | `uuid` | NOT NULL | — |
+| 3 | `account_kind` | `text` | NOT NULL | — |
+| 4 | `name` | `text` | NOT NULL | — |
+| 5 | `account_subtype` | `text` | NULL | — |
+| 6 | `account_number_last4` | `text` | NULL | — |
+| 7 | `target_amount` | `numeric(12,2)` | NULL | — |
+| 8 | `target_date` | `date` | NULL | — |
+| 9 | `is_active` | `boolean` | NOT NULL | `true` |
+| 10 | `created_at` | `timestamptz` | NOT NULL | `now()` |
+| 11 | `updated_at` | `timestamptz` | NOT NULL | `now()` |
+| 12 | `opening_balance` | `numeric(12,2)` | NULL | — |
+| 13 | `interest_rate` | `numeric(5,4)` | NULL | — |
+| 14 | `user_id` | `uuid` | NOT NULL | — |
 
 ### Primary Key
 
@@ -68,64 +68,67 @@ Unified account table. Replaces former savings\_accounts, investment\_accounts, 
 
 ### Foreign Keys
 
-| Column | References |
-|---|---|
-| `tenant_id` | `tenants.id` |
-| `user_id` | `auth.users.id` |
+| Column | References | On Delete |
+|---|---|---|
+| `tenant_id` | `tenants.id` | CASCADE |
+| `user_id` | `auth.users.id` | SET NULL |
 
 ### Unique Constraints
 
-- `(tenant_id, account_kind, lower(name))`
+| Name | Columns |
+|---|---|
+| `accounts_tenant_kind_name_uidx` | `(tenant_id, account_kind, lower(name))` |
 
 ### Check Constraints
 
 | Name | Expression |
 |---|---|
-| `accounts_account_kind_check` | `account_kind IN ('savings', 'investment', 'debt')` |
+| `accounts_account_kind_check` | `account_kind = ANY (ARRAY['savings', 'investment', 'debt'])` |
 | `accounts_account_number_last4_check` | `account_number_last4 ~ '^[0-9]{4}$'` |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `accounts_pkey` | `id` | unique |
-| `accounts_tenant_kind_name_uidx` | `(tenant_id, account_kind, lower(name))` | unique |
-| `accounts_tenant_id_idx` | `tenant_id` | |
-| `accounts_tenant_kind_idx` | `(tenant_id, account_kind)` | |
-| `accounts_tenant_kind_active_idx` | `(tenant_id, account_kind, is_active)` | |
-| `idx_accounts_user_id` | `(tenant_id, user_id, is_active)` | |
+| Name | Definition |
+|---|---|
+| `accounts_pkey` | `UNIQUE BTREE (id)` |
+| `accounts_tenant_kind_name_uidx` | `UNIQUE BTREE (tenant_id, account_kind, lower(name))` |
+| `accounts_tenant_id_idx` | `BTREE (tenant_id)` |
+| `accounts_tenant_kind_idx` | `BTREE (tenant_id, account_kind)` |
+| `accounts_tenant_kind_active_idx` | `BTREE (tenant_id, account_kind, is_active)` |
+| `idx_accounts_user_id` | `BTREE (tenant_id, user_id, is_active)` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
-| `accounts_select_for_tenant_members` | SELECT | authenticated | Active tenant member: `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = accounts.tenant_id AND tm.user_id = auth.uid() AND tm.is_active = true)` | — |
-| `accounts_insert_for_tenant_members` | INSERT | authenticated | — | `user_id = auth.uid()` AND active tenant member |
-| `accounts_update_for_tenant_members` | UPDATE | authenticated | `user_id = auth.uid()` AND active tenant member | Same |
-| `accounts_delete_for_tenant_members` | DELETE | authenticated | `user_id = auth.uid()` AND active tenant member | — |
+| `accounts_select_for_tenant_members` | SELECT | authenticated | `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = accounts.tenant_id AND tm.user_id = auth.uid())` | — |
+| `accounts_insert_for_tenant_members` | INSERT | authenticated | — | `(user_id = auth.uid()) AND EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = accounts.tenant_id AND tm.user_id = auth.uid() AND tm.is_active = true)` |
+| `accounts_update_for_tenant_members` | UPDATE | authenticated | `(user_id = auth.uid()) AND EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = accounts.tenant_id AND tm.user_id = auth.uid() AND tm.is_active = true)` | — |
+| `accounts_delete_for_tenant_members` | DELETE | authenticated | `(user_id = auth.uid()) AND EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = accounts.tenant_id AND tm.user_id = auth.uid() AND tm.is_active = true)` | — |
 
-> **Note:** SELECT reads ALL tenant accounts (not own-only). Mobile account picker must always apply `WHERE user_id = $targetUserId` in query — RLS does not scope it.
+> **Note:** SELECT policy does **not** check `is_active` on `tenant_members` — any tenant member (active or not) can read accounts. INSERT/UPDATE/DELETE require `is_active = true`.
+> No balance column — `opening_balance` is user-entered; running balance must be computed from transactions.
 
 ---
 
 ## budget_lines
 
-Budget amounts per category per budget. Single `amount` column.
-
-> **Warning:** `planned_income` and `planned_expense` columns no longer exist (dropped in migration `20260408000100`). Any code referencing them is wrong.
+Budget amounts per category per budget. Single `amount` column (`planned_income`/`planned_expense` were dropped).
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
-| `tenant_id` | `uuid` | NOT NULL | — |
-| `budget_id` | `uuid` | NOT NULL | — |
-| `category_id` | `uuid` | NOT NULL | — |
-| `amount` | `numeric` | NOT NULL | `0` |
-| `created_at` | `timestamptz` | NOT NULL | `now()` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `tenant_id` | `uuid` | NOT NULL | — |
+| 3 | `budget_id` | `uuid` | NOT NULL | — |
+| 4 | `category_id` | `uuid` | NOT NULL | — |
+| 7 | `created_at` | `timestamptz` | NOT NULL | `now()` |
+| 8 | `amount` | `numeric(12,2)` | NOT NULL | `0` |
+
+> Ordinal positions 5–6 are gaps from dropped columns.
 
 ### Primary Key
 
@@ -133,34 +136,36 @@ Budget amounts per category per budget. Single `amount` column.
 
 ### Foreign Keys
 
-| Column | References |
-|---|---|
-| `tenant_id` | `tenants.id` |
-| `budget_id` | `budgets.id` |
-| `category_id` | `categories.id` |
+| Column | References | On Delete |
+|---|---|---|
+| `tenant_id` | `tenants.id` | CASCADE |
+| `budget_id` | `budgets.id` | CASCADE |
+| `category_id` | `categories.id` | RESTRICT |
 
 ### Unique Constraints
 
-- `(tenant_id, budget_id, category_id)`
+| Name | Columns |
+|---|---|
+| `budget_lines_tenant_id_budget_id_category_id_key` | `(tenant_id, budget_id, category_id)` |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `budget_lines_pkey` | `id` | unique |
-| `budget_lines_tenant_id_budget_id_category_id_key` | `(tenant_id, budget_id, category_id)` | unique |
-| `idx_budget_lines_budget` | `budget_id` | |
+| Name | Definition |
+|---|---|
+| `budget_lines_pkey` | `UNIQUE BTREE (id)` |
+| `budget_lines_tenant_id_budget_id_category_id_key` | `UNIQUE BTREE (tenant_id, budget_id, category_id)` |
+| `idx_budget_lines_budget` | `BTREE (budget_id)` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
-| `select lines via parent budget` | SELECT | authenticated | Own budget OR admin of same tenant (via parent `budgets` row) | — |
-| `modify own lines` | ALL (INSERT/UPDATE/DELETE) | authenticated | Own budget only (`budget.user_id = auth.uid()`) | Same |
+| `select lines via parent budget` | SELECT | public | `EXISTS (SELECT 1 FROM budgets b WHERE b.id = budget_lines.budget_id AND (b.user_id = auth.uid() OR EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = b.tenant_id AND tm.user_id = auth.uid() AND tm.role = 'admin')))` | — |
+| `modify own lines` | ALL | public | `EXISTS (SELECT 1 FROM budgets b WHERE b.id = budget_lines.budget_id AND b.user_id = auth.uid())` | — |
 
-> **Note:** Admin can SELECT any member's budget_lines. Admin cannot INSERT/UPDATE/DELETE another member's budget_lines.
+> Policies use role `public` (not `authenticated`). Admin can SELECT any member's budget\_lines; admin cannot INSERT/UPDATE/DELETE another member's lines.
 
 ---
 
@@ -170,13 +175,13 @@ Monthly budget per member. One row per `(tenant_id, user_id, month_start)`.
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
-| `tenant_id` | `uuid` | NOT NULL | — |
-| `user_id` | `uuid` | NOT NULL | — |
-| `month_start` | `date` | NOT NULL | — |
-| `created_at` | `timestamptz` | NOT NULL | `now()` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `tenant_id` | `uuid` | NOT NULL | — |
+| 3 | `user_id` | `uuid` | NOT NULL | — |
+| 4 | `month_start` | `date` | NOT NULL | — |
+| 5 | `created_at` | `timestamptz` | NOT NULL | `now()` |
 
 ### Primary Key
 
@@ -184,52 +189,54 @@ Monthly budget per member. One row per `(tenant_id, user_id, month_start)`.
 
 ### Foreign Keys
 
-| Column | References |
-|---|---|
-| `tenant_id` | `tenants.id` |
-| `user_id` | `auth.users.id` |
+| Column | References | On Delete |
+|---|---|---|
+| `tenant_id` | `tenants.id` | CASCADE |
+| `user_id` | `auth.users.id` | CASCADE |
 
 ### Unique Constraints
 
-- `(tenant_id, user_id, month_start)`
+| Name | Columns |
+|---|---|
+| `budgets_tenant_id_user_id_month_start_key` | `(tenant_id, user_id, month_start)` |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `budgets_pkey` | `id` | unique |
-| `budgets_tenant_id_user_id_month_start_key` | `(tenant_id, user_id, month_start)` | unique |
-| `idx_budgets_lookup` | `(tenant_id, user_id, month_start)` | |
+| Name | Definition |
+|---|---|
+| `budgets_pkey` | `UNIQUE BTREE (id)` |
+| `budgets_tenant_id_user_id_month_start_key` | `UNIQUE BTREE (tenant_id, user_id, month_start)` |
+| `idx_budgets_lookup` | `BTREE (tenant_id, user_id, month_start)` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
-| `select own or admin budgets` | SELECT | authenticated | `user_id = auth.uid()` OR admin of same tenant | — |
-| `insert own budgets` | INSERT | authenticated | — | `user_id = auth.uid()` |
-| `update own or admin budgets` | UPDATE | authenticated | `user_id = auth.uid()` OR admin of same tenant | Same |
+| `select own or admin budgets` | SELECT | public | `(user_id = auth.uid()) OR EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = budgets.tenant_id AND tm.user_id = auth.uid() AND tm.role = 'admin')` | — |
+| `insert own budgets` | INSERT | public | — | `user_id = auth.uid()` |
+| `update own or admin budgets` | UPDATE | public | `(user_id = auth.uid()) OR EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = budgets.tenant_id AND tm.user_id = auth.uid() AND tm.role = 'admin')` | — |
 
-> **Note:** `month_start` is DATE type — always first day of month (e.g. `2026-04-01`).
+> `month_start` is `date` — always first day of month (e.g. `2026-04-01`).
 
 ---
 
 ## categories
 
-Income/expense categories. Tenant-scoped (shared household-wide, not per-member).
+Income/expense categories. Tenant-scoped, shared household-wide.
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
-| `tenant_id` | `uuid` | NOT NULL | — |
-| `name` | `text` | NOT NULL | — |
-| `tag` | `text` | NOT NULL | `'standard'` |
-| `category_type` | `text` | NOT NULL | — |
-| `is_active` | `boolean` | NOT NULL | `true` |
-| `created_at` | `timestamptz` | NOT NULL | `now()` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `tenant_id` | `uuid` | NOT NULL | — |
+| 3 | `name` | `text` | NOT NULL | — |
+| 4 | `tag` | `text` | NOT NULL | `'standard'::text` |
+| 5 | `is_active` | `boolean` | NOT NULL | `true` |
+| 6 | `created_at` | `timestamptz` | NOT NULL | `now()` |
+| 7 | `category_type` | `text` | NOT NULL | — |
 
 ### Primary Key
 
@@ -237,62 +244,63 @@ Income/expense categories. Tenant-scoped (shared household-wide, not per-member)
 
 ### Foreign Keys
 
-| Column | References |
-|---|---|
-| `tenant_id` | `tenants.id` |
-| `tag` | `expense_types.slug` (ON UPDATE CASCADE) |
+| Column | References | On Update | On Delete |
+|---|---|---|---|
+| `tenant_id` | `tenants.id` | NO ACTION | CASCADE |
+| `tag` | `expense_types.slug` | CASCADE | RESTRICT |
 
 ### Unique Constraints
 
-- `(tenant_id, lower(name))` — case-insensitive name uniqueness per tenant
+| Name | Columns |
+|---|---|
+| `categories_tenant_lower_name_uniq` | `(tenant_id, lower(name))` |
 
 ### Check Constraints
 
 | Name | Expression |
 |---|---|
-| `categories_category_type_check` | `category_type IN ('income', 'expense')` |
+| `categories_category_type_check` | `category_type = ANY (ARRAY['income', 'expense'])` |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `categories_pkey` | `id` | unique |
-| `categories_tenant_lower_name_uniq` | `(tenant_id, lower(name))` | unique |
+| Name | Definition |
+|---|---|
+| `categories_pkey` | `UNIQUE BTREE (id)` |
+| `categories_tenant_lower_name_uniq` | `UNIQUE BTREE (tenant_id, lower(name))` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
-| `categories_select_for_tenant_members` | SELECT | authenticated | Active tenant member | — |
-| `categories_insert_for_tenant_members` | INSERT | authenticated | — | Active tenant member |
-| `categories_update_for_tenant_members` | UPDATE | authenticated | Active tenant member | Same |
-| `categories_delete_for_tenant_members` | DELETE | authenticated | Active tenant member | — |
+| `categories_select_for_tenant_members` | SELECT | authenticated | `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = categories.tenant_id AND tm.user_id = auth.uid())` | — |
+| `categories_insert_for_tenant_members` | INSERT | authenticated | — | `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = categories.tenant_id AND tm.user_id = auth.uid() AND tm.is_active = true)` |
+| `categories_update_for_tenant_members` | UPDATE | authenticated | `EXISTS (...is_active = true)` | `EXISTS (...is_active = true)` |
+| `categories_delete_for_tenant_members` | DELETE | authenticated | `EXISTS (...is_active = true)` | — |
 
-> **Notes:**
-> - `tag` is a FK to `expense_types.slug` — never hardcode. Fetch valid slugs from `expense_types` at runtime.
-> - `category_type` CHECK is `('income', 'expense')` only — not 'savings' or 'investment' (those are expressed via the `tag` FK).
-> - Unknown category seeded per tenant via MIGRATION-3: `name='Unknown'`, `category_type='expense'`, `tag='standard'`. No `is_system` flag exists on this table.
-> - Any active tenant member can INSERT/UPDATE/DELETE categories — not admin-only.
+> `tag` FK has ON UPDATE CASCADE — if a slug changes in `expense_types`, `categories.tag` updates automatically.
+> Any active tenant member can INSERT/UPDATE/DELETE — not admin-only.
+> SELECT does not check `is_active` on `tenant_members`.
+> Unknown category seeded per tenant: `name='Unknown'`, `category_type='expense'`, `tag='standard'`. No `is_system` flag on this table.
 
 ---
 
 ## device_tokens
 
-Push notification token storage per user per platform. Created by MIGRATION-4.
+Push notification token storage per user per platform.
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
-| `user_id` | `uuid` | NOT NULL | — |
-| `tenant_id` | `uuid` | NOT NULL | — |
-| `expo_push_token` | `text` | NOT NULL | — |
-| `platform` | `text` | NOT NULL | — |
-| `created_at` | `timestamptz` | NOT NULL | `now()` |
-| `updated_at` | `timestamptz` | NOT NULL | `now()` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `user_id` | `uuid` | NOT NULL | — |
+| 3 | `tenant_id` | `uuid` | NOT NULL | — |
+| 4 | `expo_push_token` | `text` | NOT NULL | — |
+| 5 | `platform` | `text` | NOT NULL | — |
+| 6 | `created_at` | `timestamptz` | NOT NULL | `now()` |
+| 7 | `updated_at` | `timestamptz` | NOT NULL | `now()` |
 
 ### Primary Key
 
@@ -300,57 +308,59 @@ Push notification token storage per user per platform. Created by MIGRATION-4.
 
 ### Foreign Keys
 
-| Column | References |
-|---|---|
-| `user_id` | `auth.users.id` ON DELETE CASCADE |
-| `tenant_id` | `tenants.id` ON DELETE CASCADE |
+| Column | References | On Delete |
+|---|---|---|
+| `user_id` | `auth.users.id` | CASCADE |
+| `tenant_id` | `tenants.id` | CASCADE |
 
 ### Unique Constraints
 
-- `(user_id, platform)` — one token per user per platform
+| Name | Columns |
+|---|---|
+| `device_tokens_user_id_platform_key` | `(user_id, platform)` |
 
 ### Check Constraints
 
 | Name | Expression |
 |---|---|
-| `device_tokens_platform_check` | `platform IN ('ios', 'android')` |
+| `device_tokens_platform_check` | `platform = ANY (ARRAY['ios', 'android'])` |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `device_tokens_pkey` | `id` | unique |
-| `device_tokens_user_id_platform_key` | `(user_id, platform)` | unique |
-| `idx_device_tokens_user_id` | `user_id` | |
-| `idx_device_tokens_tenant_id` | `tenant_id` | |
+| Name | Definition |
+|---|---|
+| `device_tokens_pkey` | `UNIQUE BTREE (id)` |
+| `device_tokens_user_id_platform_key` | `UNIQUE BTREE (user_id, platform)` |
+| `idx_device_tokens_user_id` | `BTREE (user_id)` |
+| `idx_device_tokens_tenant_id` | `BTREE (tenant_id)` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
 | `device_tokens_member_own` | ALL | authenticated | `user_id = auth.uid()` | `user_id = auth.uid()` |
 
-> **Note:** Use UPSERT (`ON CONFLICT (user_id, platform) DO UPDATE`) to register or refresh a token.
+> Use UPSERT (`ON CONFLICT (user_id, platform) DO UPDATE SET expo_push_token = EXCLUDED.expo_push_token, updated_at = now()`) to register or refresh.
 
 ---
 
 ## expense_types
 
-Dynamic tag vocabulary for categories. System-wide — NOT tenant-scoped.
+Dynamic tag vocabulary for categories. System-wide — not tenant-scoped.
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
-| `name` | `text` | NOT NULL | — |
-| `slug` | `text` | NOT NULL | — |
-| `is_active` | `boolean` | NOT NULL | `true` |
-| `is_system` | `boolean` | NOT NULL | `false` |
-| `sort_order` | `integer` | NOT NULL | `0` |
-| `created_at` | `timestamptz` | NOT NULL | `now()` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `name` | `text` | NOT NULL | — |
+| 3 | `slug` | `text` | NOT NULL | — |
+| 4 | `is_active` | `boolean` | NOT NULL | `true` |
+| 5 | `is_system` | `boolean` | NOT NULL | `false` |
+| 6 | `sort_order` | `integer` | NOT NULL | `0` |
+| 7 | `created_at` | `timestamptz` | NOT NULL | `now()` |
 
 ### Primary Key
 
@@ -358,24 +368,26 @@ Dynamic tag vocabulary for categories. System-wide — NOT tenant-scoped.
 
 ### Unique Constraints
 
-- `slug`
+| Name | Columns |
+|---|---|
+| `expense_types_slug_uniq` | `slug` |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `expense_types_pkey` | `id` | unique |
-| `expense_types_slug_uniq` | `slug` | unique |
+| Name | Definition |
+|---|---|
+| `expense_types_pkey` | `UNIQUE BTREE (id)` |
+| `expense_types_slug_uniq` | `UNIQUE BTREE (slug)` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
 | `expense_types_select_authenticated` | SELECT | authenticated | `true` | — |
 
-### Seeded Rows
+### Live Seeded Rows
 
 | id | name | slug | is_system | sort_order |
 |---|---|---|---|---|
@@ -385,7 +397,7 @@ Dynamic tag vocabulary for categories. System-wide — NOT tenant-scoped.
 | `4253d515-abf1-47bc-97e8-95f4c5cf5d45` | Investment | `investment` | true | 3 |
 | `516bee19-dce0-4e5a-a2d6-ef7fd4c2c8e4` | Charity | `charity` | false | 4 |
 
-> **Warning:** `debt_payment` does NOT exist as a slug. The correct slug is `debts`. Never hardcode slugs — always fetch `is_active = true` rows at runtime.
+> `debt_payment` does **not** exist. The correct slug is `debts`. Never hardcode slugs — always fetch `is_active = true` rows at runtime.
 
 ---
 
@@ -393,23 +405,114 @@ Dynamic tag vocabulary for categories. System-wide — NOT tenant-scoped.
 
 CSV import batch tracking. Web-only — not used by mobile v1.
 
+### Columns
+
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `tenant_id` | `uuid` | NOT NULL | — |
+| 3 | `original_filename` | `text` | NULL | — |
+| 4 | `imported_by` | `uuid` | NOT NULL | — |
+| 5 | `status` | `text` | NOT NULL | `'created'::text` |
+| 6 | `created_at` | `timestamptz` | NOT NULL | `now()` |
+
+### Primary Key
+
+`id`
+
+### Foreign Keys
+
+| Column | References | On Delete |
+|---|---|---|
+| `tenant_id` | `tenants.id` | CASCADE |
+| `imported_by` | `auth.users.id` | NO ACTION |
+
+### Check Constraints
+
+| Name | Expression |
+|---|---|
+| `import_batches_status_check` | `status = ANY (ARRAY['created', 'stored_pending', 'completed', 'failed'])` |
+
+### Indexes
+
+| Name | Definition |
+|---|---|
+| `import_batches_pkey` | `UNIQUE BTREE (id)` |
+| `idx_import_batches_tenant_id` | `BTREE (tenant_id)` |
+| `idx_import_batches_tenant_status` | `BTREE (tenant_id, status)` |
+
 ### RLS
 
-**Enabled:** (web-only; not introspected for mobile schema map)
+**Enabled:** Yes (not forced)
 
-> Full column list not captured — web-only table.
+| Policy | Cmd | Roles | USING | WITH CHECK |
+|---|---|---|---|---|
+| `tenant_isolation_import_batches` | ALL | public | `tenant_id IN (SELECT tenant_members.tenant_id FROM tenant_members WHERE tenant_members.user_id = auth.uid())` | Same |
 
 ---
 
 ## import_staging
 
-CSV import pending rows before posting to transactions. Web-only — not used by mobile v1.
+CSV import rows pending review before posting to transactions. Web-only — not used by mobile v1.
+
+### Columns
+
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `tenant_id` | `uuid` | NOT NULL | — |
+| 3 | `import_batch_id` | `uuid` | NOT NULL | — |
+| 4 | `occurred_at` | `date` | NOT NULL | — |
+| 5 | `description` | `text` | NOT NULL | — |
+| 6 | `amount` | `numeric(12,2)` | NOT NULL | — |
+| 7 | `transaction_type` | `text` | NULL | — |
+| 8 | `category_id` | `uuid` | NULL | — |
+| 9 | `linked_account_id` | `uuid` | NULL | — |
+| 10 | `payment_source_account_id` | `uuid` | NULL | — |
+| 11 | `status` | `text` | NOT NULL | `'pending'::text` |
+| 12 | `created_at` | `timestamptz` | NOT NULL | `now()` |
+
+> Note: staging table uses `occurred_at` (not `transaction_date`) — this is the pre-posting date field.
+
+### Primary Key
+
+`id`
+
+### Foreign Keys
+
+| Column | References | On Delete |
+|---|---|---|
+| `tenant_id` | `tenants.id` | CASCADE |
+| `import_batch_id` | `import_batches.id` | CASCADE |
+| `category_id` | `categories.id` | SET NULL |
+| `linked_account_id` | `accounts.id` | SET NULL |
+| `payment_source_account_id` | `accounts.id` | SET NULL |
+
+### Check Constraints
+
+| Name | Expression |
+|---|---|
+| `import_staging_transaction_type_check` | `transaction_type = ANY (ARRAY['income', 'expense'])` |
+| `import_staging_status_check` | `status = ANY (ARRAY['pending', 'posted'])` |
+| `chk_different_accounts` | `linked_account_id IS NULL OR payment_source_account_id IS NULL OR linked_account_id <> payment_source_account_id` |
+
+### Indexes
+
+| Name | Definition |
+|---|---|
+| `import_staging_pkey` | `UNIQUE BTREE (id)` |
+| `idx_import_staging_tenant_id` | `BTREE (tenant_id)` |
+| `idx_import_staging_tenant_batch` | `BTREE (tenant_id, import_batch_id)` |
+| `idx_import_staging_tenant_occurred` | `BTREE (tenant_id, occurred_at)` |
+| `idx_import_staging_tenant_status` | `BTREE (tenant_id, status)` |
 
 ### RLS
 
-**Enabled:** (web-only; not introspected for mobile schema map)
+**Enabled:** Yes (not forced)
 
-> Full column list not captured — web-only table.
+| Policy | Cmd | Roles | USING | WITH CHECK |
+|---|---|---|---|---|
+| `tenant_isolation_import_staging` | ALL | public | `tenant_id IN (SELECT tenant_members.tenant_id FROM tenant_members WHERE tenant_members.user_id = auth.uid())` | Same |
 
 ---
 
@@ -419,16 +522,16 @@ Member invite lifecycle. Web-only — not used by mobile v1.
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
-| `tenant_id` | `uuid` | NOT NULL | — |
-| `email` | `text` | NOT NULL | — |
-| `role` | `text` | NOT NULL | `'member'` |
-| `status` | `text` | NOT NULL | `'pending'` |
-| `invited_by` | `uuid` | NOT NULL | — |
-| `invited_at` | `timestamptz` | NOT NULL | `now()` |
-| `accepted_at` | `timestamptz` | NULL | — |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `tenant_id` | `uuid` | NOT NULL | — |
+| 3 | `email` | `text` | NOT NULL | — |
+| 4 | `role` | `text` | NOT NULL | `'member'::text` |
+| 5 | `status` | `text` | NOT NULL | `'pending'::text` |
+| 6 | `invited_by` | `uuid` | NOT NULL | — |
+| 7 | `invited_at` | `timestamptz` | NOT NULL | `now()` |
+| 8 | `accepted_at` | `timestamptz` | NULL | — |
 
 ### Primary Key
 
@@ -436,16 +539,40 @@ Member invite lifecycle. Web-only — not used by mobile v1.
 
 ### Foreign Keys
 
-| Column | References |
+| Column | References | On Delete |
+|---|---|---|
+| `tenant_id` | `tenants.id` | CASCADE |
+| `invited_by` | `auth.users.id` | NO ACTION |
+
+### Unique Constraints
+
+| Name | Columns |
 |---|---|
-| `tenant_id` | `tenants.id` |
+| `invitations_tenant_email_pending_uniq` | `(tenant_id, email, status)` |
 
 ### Check Constraints
 
 | Name | Expression |
 |---|---|
-| `invitations_role_check` | `role IN ('admin', 'member')` |
-| `invitations_status_check` | `status IN ('pending', 'accepted', 'revoked')` |
+| `invitations_role_check` | `role = ANY (ARRAY['admin', 'member'])` |
+| `invitations_status_check` | `status = ANY (ARRAY['pending', 'accepted', 'revoked'])` |
+
+### Indexes
+
+| Name | Definition |
+|---|---|
+| `invitations_pkey` | `UNIQUE BTREE (id)` |
+| `invitations_tenant_email_pending_uniq` | `UNIQUE BTREE (tenant_id, email, status)` |
+
+### RLS
+
+**Enabled:** Yes (not forced)
+
+| Policy | Cmd | Roles | USING | WITH CHECK |
+|---|---|---|---|---|
+| `invitations_select_admin` | SELECT | authenticated | `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = invitations.tenant_id AND tm.user_id = auth.uid() AND tm.role = 'admin')` | — |
+| `invitations_insert_admin` | INSERT | authenticated | — | `EXISTS (...tm.role = 'admin')` |
+| `invitations_update_admin` | UPDATE | authenticated | `EXISTS (...tm.role = 'admin')` | — |
 
 ---
 
@@ -455,13 +582,13 @@ User display info. Soft-delete via `is_active`.
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `user_id` | `uuid` | NOT NULL | — |
-| `display_name` | `text` | NULL | — |
-| `first_name` | `text` | NULL | — |
-| `last_name` | `text` | NULL | — |
-| `is_active` | `boolean` | NOT NULL | `true` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `user_id` | `uuid` | NOT NULL | — |
+| 2 | `display_name` | `text` | NULL | — |
+| 3 | `first_name` | `text` | NULL | — |
+| 4 | `last_name` | `text` | NULL | — |
+| 5 | `is_active` | `boolean` | NOT NULL | `true` |
 
 ### Primary Key
 
@@ -469,29 +596,29 @@ User display info. Soft-delete via `is_active`.
 
 ### Foreign Keys
 
-| Column | References |
-|---|---|
-| `user_id` | `auth.users.id` |
+| Column | References | On Delete |
+|---|---|---|
+| `user_id` | `auth.users.id` | CASCADE |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `profiles_pkey` | `user_id` | unique |
-| `idx_profiles_active` | `(user_id, is_active)` | |
+| Name | Definition |
+|---|---|
+| `profiles_pkey` | `UNIQUE BTREE (user_id)` |
+| `idx_profiles_active` | `BTREE (user_id, is_active)` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
 | `profiles_select_self` | SELECT | authenticated | `auth.uid() = user_id` | — |
-| `profiles_select_tenant_admin` | SELECT | authenticated | Admin can read ALL profiles of members in their household (JOIN via `tenant_members`) | — |
-| `profiles_insert_self` | INSERT | authenticated | — | `user_id = auth.uid()` |
-| `profiles_update_self` | UPDATE | authenticated | `user_id = auth.uid()` | Same |
+| `profiles_select_tenant_admin` | SELECT | authenticated | `EXISTS (SELECT 1 FROM tenant_members admin_tm JOIN tenant_members member_tm ON member_tm.tenant_id = admin_tm.tenant_id WHERE admin_tm.user_id = auth.uid() AND admin_tm.role = 'admin' AND member_tm.user_id = profiles.user_id)` | — |
+| `profiles_insert_self` | INSERT | authenticated | — | `auth.uid() = user_id` |
+| `profiles_update_self` | UPDATE | authenticated | `auth.uid() = user_id` | `auth.uid() = user_id` |
 
-> **Note:** `display_name` is the canonical display field for mobile. `first_name` / `last_name` are supplementary and nullable.
+> `display_name` is the canonical display field for mobile. `first_name`/`last_name` are supplementary and nullable.
 
 ---
 
@@ -501,13 +628,13 @@ Household membership with roles. Soft-delete via `is_active`.
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `tenant_id` | `uuid` | NOT NULL | — |
-| `user_id` | `uuid` | NOT NULL | — |
-| `role` | `text` | NOT NULL | — |
-| `is_active` | `boolean` | NOT NULL | `true` |
-| `created_at` | `timestamptz` | NOT NULL | `now()` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `tenant_id` | `uuid` | NOT NULL | — |
+| 2 | `user_id` | `uuid` | NOT NULL | — |
+| 3 | `role` | `text` | NOT NULL | — |
+| 4 | `created_at` | `timestamptz` | NOT NULL | `now()` |
+| 5 | `is_active` | `boolean` | NOT NULL | `true` |
 
 ### Primary Key
 
@@ -515,38 +642,37 @@ Household membership with roles. Soft-delete via `is_active`.
 
 ### Foreign Keys
 
-| Column | References |
-|---|---|
-| `tenant_id` | `tenants.id` |
-| `user_id` | `auth.users.id` |
+| Column | References | On Delete |
+|---|---|---|
+| `tenant_id` | `tenants.id` | CASCADE |
+| `user_id` | `auth.users.id` | CASCADE |
 
 ### Check Constraints
 
 | Name | Expression |
 |---|---|
-| `tenant_members_role_check` | `role IN ('admin', 'member')` |
+| `tenant_members_role_check` | `role = ANY (ARRAY['admin', 'member'])` |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `tenant_members_pkey` | `(tenant_id, user_id)` | unique |
-| `idx_tenant_members_user_id` | `user_id` | |
-| `idx_tenant_members_tenant_id` | `tenant_id` | |
-| `idx_tenant_members_active` | `(tenant_id, is_active)` | |
+| Name | Definition |
+|---|---|
+| `tenant_members_pkey` | `UNIQUE BTREE (tenant_id, user_id)` |
+| `idx_tenant_members_user_id` | `BTREE (user_id)` |
+| `idx_tenant_members_tenant_id` | `BTREE (tenant_id)` |
+| `idx_tenant_members_active` | `BTREE (tenant_id, is_active)` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
 | `tenant_members_select_self` | SELECT | authenticated | `user_id = auth.uid()` | — |
-| `tenant_members_select_admin` | SELECT | authenticated | `EXISTS (SELECT 1 FROM tenant_members admin_tm WHERE admin_tm.tenant_id = tenant_members.tenant_id AND admin_tm.user_id = auth.uid() AND admin_tm.role = 'admin' AND admin_tm.is_active = true)` | — |
+| `tenant_members_select_admin` | SELECT | authenticated | `is_admin_of_tenant(tenant_id)` | — |
 
-> **Notes:**
-> - `tenant_members_select_admin` was added by MIGRATION-2. Before this migration, admins could not list household members.
-> - Always filter `is_active = true` to exclude soft-deleted members.
+> `tenant_members_select_admin` delegates to the `is_admin_of_tenant(uuid)` RPC function (see [Functions](#functions)).
+> Always filter `is_active = true` in queries to exclude soft-deleted members.
 
 ---
 
@@ -556,11 +682,11 @@ Household registry. One row per household.
 
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
-| `alias` | `text` | NOT NULL | — |
-| `created_at` | `timestamptz` | NOT NULL | `now()` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `alias` | `text` | NOT NULL | — |
+| 3 | `created_at` | `timestamptz` | NOT NULL | `now()` |
 
 ### Primary Key
 
@@ -568,24 +694,26 @@ Household registry. One row per household.
 
 ### Unique Constraints
 
-- `alias`
+| Name | Columns |
+|---|---|
+| `tenants_alias_key` | `alias` |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `tenants_pkey` | `id` | unique |
-| `tenants_alias_key` | `alias` | unique |
+| Name | Definition |
+|---|---|
+| `tenants_pkey` | `UNIQUE BTREE (id)` |
+| `tenants_alias_key` | `UNIQUE BTREE (alias)` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
-| `tenants_select_member` | SELECT | authenticated | Active member of tenant: `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = tenants.id AND tm.user_id = auth.uid() AND tm.is_active = true)` | — |
+| `tenants_select_member` | SELECT | authenticated | `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = tenants.id AND tm.user_id = auth.uid())` | — |
 
-> **Note:** No INSERT/UPDATE/DELETE from mobile. Read-only.
+> No INSERT/UPDATE/DELETE from mobile. Read-only.
 
 ---
 
@@ -593,26 +721,23 @@ Household registry. One row per household.
 
 Full transaction record. Per-member via `created_by_user_id`.
 
-> **Warnings:**
-> - Date column is `transaction_date` — NOT `occurred_at`.
-> - User FK is `created_by_user_id` — NOT `user_id`.
-> - NO `source` or `status` columns exist — do not include in INSERT payloads.
-
 ### Columns
 
-| Column | Type | Nullable | Default |
-|---|---|---|---|
-| `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
-| `tenant_id` | `uuid` | NOT NULL | — |
-| `created_by_user_id` | `uuid` | NOT NULL | — |
-| `category_id` | `uuid` | NOT NULL | — |
-| `description` | `text` | NOT NULL | — |
-| `amount` | `numeric` | NOT NULL | — |
-| `transaction_date` | `date` | NOT NULL | — |
-| `transaction_type` | `text` | NOT NULL | — |
-| `linked_account_id` | `uuid` | NULL | — |
-| `payment_source_account_id` | `uuid` | NULL | — |
-| `created_at` | `timestamptz` | NOT NULL | `now()` |
+| # | Column | Type | Nullable | Default |
+|---|---|---|---|---|
+| 1 | `id` | `uuid` | NOT NULL | `gen_random_uuid()` |
+| 2 | `tenant_id` | `uuid` | NOT NULL | — |
+| 3 | `created_by_user_id` | `uuid` | NOT NULL | — |
+| 4 | `category_id` | `uuid` | NOT NULL | — |
+| 5 | `description` | `text` | NOT NULL | — |
+| 6 | `amount` | `numeric(12,2)` | NOT NULL | — |
+| 7 | `transaction_date` | `date` | NOT NULL | — |
+| 8 | `transaction_type` | `text` | NOT NULL | — |
+| 9 | `created_at` | `timestamptz` | NOT NULL | `now()` |
+| 16 | `linked_account_id` | `uuid` | NULL | — |
+| 17 | `payment_source_account_id` | `uuid` | NULL | — |
+
+> Ordinal positions 10–15 are gaps — columns were dropped in a prior migration. No `source` or `status` column exists or ever will.
 
 ### Primary Key
 
@@ -620,64 +745,61 @@ Full transaction record. Per-member via `created_by_user_id`.
 
 ### Foreign Keys
 
-| Column | References |
-|---|---|
-| `tenant_id` | `tenants.id` |
-| `category_id` | `categories.id` |
-| `linked_account_id` | `accounts.id` |
-| `payment_source_account_id` | `accounts.id` |
-
-> `created_by_user_id` references `auth.users.id` logically but FK is not enforced at DB level.
+| Column | References | On Delete |
+|---|---|---|
+| `tenant_id` | `tenants.id` | CASCADE |
+| `created_by_user_id` | `auth.users.id` | CASCADE |
+| `category_id` | `categories.id` | RESTRICT |
+| `linked_account_id` | `accounts.id` | SET NULL |
+| `payment_source_account_id` | `accounts.id` | SET NULL |
 
 ### Check Constraints
 
 | Name | Expression |
 |---|---|
 | `transactions_amount_check` | `amount <> 0` |
-| `transactions_transaction_type_check` | `transaction_type IN ('income', 'expense')` |
+| `transactions_transaction_type_check` | `transaction_type = ANY (ARRAY['income', 'expense'])` |
 | `transactions_linked_not_same_as_payment_source_chk` | `linked_account_id IS NULL OR payment_source_account_id IS NULL OR linked_account_id <> payment_source_account_id` |
 
 ### Indexes
 
-| Name | Columns | Notes |
-|---|---|---|
-| `transactions_pkey` | `id` | unique |
-| `transactions_tenant_id_idx` | `tenant_id` | |
-| `transactions_category_id_idx` | `category_id` | |
-| `transactions_transaction_date_idx` | `transaction_date` | |
-| `idx_transactions_linked_account_id` | `linked_account_id` | |
-| `idx_transactions_payment_source_account_id` | `payment_source_account_id` | |
+| Name | Definition |
+|---|---|
+| `transactions_pkey` | `UNIQUE BTREE (id)` |
+| `transactions_tenant_id_idx` | `BTREE (tenant_id)` |
+| `transactions_category_id_idx` | `BTREE (category_id)` |
+| `transactions_transaction_date_idx` | `BTREE (transaction_date)` |
+| `idx_transactions_linked_account_id` | `BTREE (linked_account_id)` |
+| `idx_transactions_payment_source_account_id` | `BTREE (payment_source_account_id)` |
 
 ### RLS
 
-**Enabled:** Yes
+**Enabled:** Yes (not forced)
 
-| Policy | Command | Roles | USING | WITH CHECK |
+| Policy | Cmd | Roles | USING | WITH CHECK |
 |---|---|---|---|---|
-| `transactions_select_for_tenant_members` | SELECT | authenticated | Active tenant member (reads ALL tenant transactions — not own-only) | — |
-| `transactions_insert_for_tenant_members` | INSERT | authenticated | — | `created_by_user_id = auth.uid()` AND active tenant member |
-| `transactions_insert_admin_on_behalf_of` | INSERT | authenticated | — | Caller is active admin of same tenant AND `created_by_user_id` is active member of same tenant |
-| `transactions_update_for_tenant_members` | UPDATE | authenticated | Active tenant member | Same |
-| `transactions_delete_for_tenant_members` | DELETE | authenticated | Active tenant member | — |
+| `transactions_select_for_tenant_members` | SELECT | authenticated | `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = transactions.tenant_id AND tm.user_id = auth.uid())` | — |
+| `transactions_insert_for_tenant_members` | INSERT | authenticated | — | `(created_by_user_id = auth.uid()) AND EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = transactions.tenant_id AND tm.user_id = auth.uid())` |
+| `transactions_insert_admin_on_behalf_of` | INSERT | authenticated | — | `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = transactions.tenant_id AND tm.user_id = auth.uid() AND tm.role = 'admin' AND tm.is_active = true) AND EXISTS (SELECT 1 FROM tenant_members target_tm WHERE target_tm.tenant_id = transactions.tenant_id AND target_tm.user_id = transactions.created_by_user_id AND target_tm.is_active = true)` |
+| `transactions_update_for_tenant_members` | UPDATE | authenticated | `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = transactions.tenant_id AND tm.user_id = auth.uid())` | Same |
+| `transactions_delete_for_tenant_members` | DELETE | authenticated | `EXISTS (SELECT 1 FROM tenant_members tm WHERE tm.tenant_id = transactions.tenant_id AND tm.user_id = auth.uid())` | — |
 
-> **Notes:**
-> - `transactions_insert_admin_on_behalf_of` was added by MIGRATION-1. Before this migration, admins could not insert on behalf of other members (STORY-4.3 was blocked).
-> - `amount` sign convention: income = positive, expense = negative stored in DB; zero is rejected by CHECK constraint.
-> - `id` is UUID — use client-generated UUIDv4 as the PK for offline sync (maps directly, no idempotency_key needed).
+> `amount` sign: income = positive, expense = negative stored in DB.
+> `id` is UUID — use client-generated UUIDv4 as PK for offline sync (no separate idempotency_key needed).
 
 ### Mobile INSERT Payload
 
 ```json
 {
-  "id":                       "<client UUIDv4 — maps directly to PK>",
-  "tenant_id":                "<from session>",
-  "created_by_user_id":       "<target member user_id>",
-  "category_id":              "<selected UUID, or UNKNOWN_CATEGORY_ID>",
-  "description":              "<user text, or '' if blank>",
-  "amount":                   "<applySignConvention(amount, transaction_type) — never 0>",
-  "transaction_date":         "<YYYY-MM-DD>",
-  "transaction_type":         "income | expense",
-  "linked_account_id":        "<UUID or null>",
+  "id":                        "<client UUIDv4>",
+  "tenant_id":                 "<from session>",
+  "created_by_user_id":        "<target member user_id>",
+  "category_id":               "<selected UUID or UNKNOWN_CATEGORY_ID>",
+  "description":               "<user text, or '' if blank>",
+  "amount":                    "<signed numeric, never 0>",
+  "transaction_date":          "<YYYY-MM-DD>",
+  "transaction_type":          "income | expense",
+  "linked_account_id":         "<UUID or null>",
   "payment_source_account_id": null
 }
 ```
@@ -686,20 +808,22 @@ Full transaction record. Per-member via `created_by_user_id`.
 
 ## auth.users (referenced columns)
 
-Supabase Auth table — not in `public` schema. Mobile uses these columns by reference only.
+Supabase Auth — `auth` schema, not `public`. Referenced as FK target throughout.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | `uuid` | PK — referenced as FK in `tenant_members.user_id`, `profiles.user_id`, `budgets.user_id`, `accounts.user_id`, `device_tokens.user_id` |
+| `id` | `uuid` | PK — FK target for `profiles.user_id`, `tenant_members.user_id`, `budgets.user_id`, `accounts.user_id`, `transactions.created_by_user_id`, `device_tokens.user_id`, `import_batches.imported_by`, `invitations.invited_by` |
 | `email` | `text` | Used for invitation matching |
 
 ---
 
-## Migration History
+## Functions
 
-| ID | File | Purpose | Status |
+All functions are in the `public` schema.
+
+| Function | Signature | Returns | Notes |
 |---|---|---|---|
-| MIGRATION-1 | `20260428000001_mobile_admin_transaction_insert_rls.sql` | Additive RLS — admin INSERT transaction on behalf of any household member | Written — run by Joseph |
-| MIGRATION-2 | `20260428000002_mobile_admin_tenant_members_select_rls.sql` | Additive RLS — admin SELECT all tenant_members in their household | Written — run by Joseph |
-| MIGRATION-3 | `20260428000003_mobile_unknown_category_seed.sql` | Seed Unknown category row per tenant (data only, no schema change) | Written — run by Joseph |
-| MIGRATION-4 | `20260428000004_mobile_device_tokens.sql` | Create device_tokens table with RLS | Written — run by Joseph |
+| `is_admin_of_tenant` | `(tenant_uuid uuid)` | `boolean` | Used by `tenant_members_select_admin` RLS policy |
+| `create_tenant_and_membership` | `(p_alias text, p_user_id uuid)` | `uuid` | Creates tenant + admin membership atomically; returns new tenant id |
+| `rpc_dashboard_summary` | `(p_month_start date, p_user_id uuid)` | `json` | Aggregated dashboard data for a member's month |
+| `get_latest_transactions_by_description` | `(p_tenant_id uuid, p_descriptions text[])` | `TABLE(description_key text, category_id uuid, transaction_type text, linked_account_id uuid, payment_source_account_id uuid)` | Smart-fill lookup: finds most recent transaction per description for auto-fill |
