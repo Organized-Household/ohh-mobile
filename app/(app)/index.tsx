@@ -22,7 +22,7 @@ import type { CategoryBudgetLine } from '../../src/services/dashboardService';
 
 export default function MemberDashboard() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, tenantId, isLoading: authLoading } = useAuthStore();
   const { data, isLoading, error } = useDashboardStore();
   const { refresh } = useDashboard();
   const [isModalVisible, setModalVisible] = useState(false);
@@ -33,8 +33,10 @@ export default function MemberDashboard() {
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
-    void refresh();
-  }, []);
+    if (!authLoading && tenantId) {
+      void refresh();
+    }
+  }, [authLoading, tenantId]);
 
   // STORY-8.3: Scroll to highlighted category when deep-linked from notification
   useEffect(() => {
