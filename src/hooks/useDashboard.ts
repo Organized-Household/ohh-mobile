@@ -39,6 +39,8 @@ export function useDashboard(targetUserId?: string) {
       return;
     }
 
+    console.log('[useDashboard] refresh fired', { userId, tenantId });
+
     setLoading(true);
 
     try {
@@ -51,6 +53,10 @@ export function useDashboard(targetUserId?: string) {
       if (isOnline) {
         // Ensure Supabase client session is rehydrated before querying
         const { data: { session } } = await supabase.auth.getSession();
+        console.log('[useDashboard] session check', {
+          hasSession: !!session,
+          sessionUserId: session?.user?.id,
+        });
         if (!session) {
           setError('Session expired. Please sign in again.');
           return;
@@ -58,6 +64,10 @@ export function useDashboard(targetUserId?: string) {
 
         // Online path — fetch from Supabase, save to cache
         const data = await fetchDashboardData(userId, tenantId, monthStart);
+        console.log('[useDashboard] fetchDashboardData result', {
+          hasData: !!data,
+          monthStart,
+        });
 
         if (data) {
           await saveDashboardCache(userId, monthStart, data);
