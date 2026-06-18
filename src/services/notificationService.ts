@@ -44,6 +44,8 @@ class NotificationService implements NotificationServiceInterface {
         shouldShowAlert: true,
         shouldPlaySound: true,
         shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
       }),
     });
 

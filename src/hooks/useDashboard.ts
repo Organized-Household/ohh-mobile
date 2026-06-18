@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import NetInfo from '@react-native-community/netinfo';
+import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../stores/authStore';
 import { useDashboardStore } from '../stores/dashboardStore';
 import {
@@ -48,6 +49,13 @@ export function useDashboard(targetUserId?: string) {
       const isOnline = netState.isConnected && netState.isInternetReachable;
 
       if (isOnline) {
+        // Ensure Supabase client session is rehydrated before querying
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          setError('Session expired. Please sign in again.');
+          return;
+        }
+
         // Online path — fetch from Supabase, save to cache
         const data = await fetchDashboardData(userId, tenantId, monthStart);
 
