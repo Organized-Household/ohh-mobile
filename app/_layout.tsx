@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { Text, View } from 'react-native';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
 import { resolveUserRole } from '../src/lib/resolveRole';
@@ -18,20 +19,16 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
   const { setSession, setRole, setTenantId, setLoading, clearAuth } = useAuthStore();
+  const [debugMsg, setDebugMsg] = useState('init');
 
   useEffect(() => {
     // Restore existing session on app launch
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      console.log('[RootLayout] getSession result', {
-        hasSession: !!session,
-        userId: session?.user?.id,
-      });
+      setDebugMsg(`session:${session ? session.user.id.slice(0, 8) : 'null'}`);
       if (session) {
         setSession(session);
         const membership = await resolveUserRole(session.user.id);
-        console.log('[RootLayout] resolveUserRole result (cold launch)', {
-          membership,
-        });
+        setDebugMsg(`role:${membership?.role ?? 'null'} tenant:${membership?.tenantId?.slice(0, 8) ?? 'null'}`);
         if (!membership) {
           // Member removed or deactivated
           clearAuth();
@@ -59,10 +56,7 @@ export default function RootLayout() {
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           setSession(session);
           const membership = await resolveUserRole(session.user.id);
-          console.log('[RootLayout] resolveUserRole result (auth change)', {
-            event,
-            membership,
-          });
+          setDebugMsg(`event:${event} role:${membership?.role ?? 'null'}`);
           if (!membership) {
             clearAuth();
             router.replace('/account-deactivated');
@@ -91,5 +85,12 @@ export default function RootLayout() {
     return cleanup;
   }, []);
 
-  return <Slot />;
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={{ backgroundColor: 'red', padding: 4, zIndex: 999 }}>
+        <Text style={{ color: 'white', fontSize: 10 }}>{debugMsg}</Text>
+      </View>
+      <Slot />
+    </View>
+  );
 }
