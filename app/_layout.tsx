@@ -22,9 +22,16 @@ export default function RootLayout() {
   useEffect(() => {
     // Restore existing session on app launch
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      console.log('[RootLayout] getSession result', {
+        hasSession: !!session,
+        userId: session?.user?.id,
+      });
       if (session) {
         setSession(session);
         const membership = await resolveUserRole(session.user.id);
+        console.log('[RootLayout] resolveUserRole result (cold launch)', {
+          membership,
+        });
         if (!membership) {
           // Member removed or deactivated
           clearAuth();
@@ -52,6 +59,10 @@ export default function RootLayout() {
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           setSession(session);
           const membership = await resolveUserRole(session.user.id);
+          console.log('[RootLayout] resolveUserRole result (auth change)', {
+            event,
+            membership,
+          });
           if (!membership) {
             clearAuth();
             router.replace('/account-deactivated');
