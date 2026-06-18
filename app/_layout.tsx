@@ -87,8 +87,8 @@ export default function RootLayout() {
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ backgroundColor: 'red', padding: 4, zIndex: 999 }}>
-        <Text style={{ color: 'white', fontSize: 10 }}>{debugMsg}</Text>
+      <View style={{ backgroundColor: 'red', padding: 8, zIndex: 999, minHeight: 60 }}>
+        <Text style={{ color: 'white', fontSize: 14, fontWeight: 'bold' }}>{debugMsg}</Text>
       </View>
       <Slot />
     </View>
